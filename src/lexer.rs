@@ -16,6 +16,9 @@ pub enum Token {
     OpenBrace,
     CloseBrace,
     Semicolon,
+    Negation,
+    BitwiseComplment,
+    Decrement,
 
     Int,
     Void,
@@ -42,6 +45,11 @@ pub fn tokenize(string: &str) -> Vec<Token> {
     let ob = re!(r"^\{");
     let cb = re!(r"^\}");
     let semi = re!("^;");
+    let bitcp = re!("^~");
+    let neg = re!("^-");
+    let dec = re!("^--");
+
+
 
     let regexes: Vec<(Regex, &str)> = vec![
         (int, "int"),
@@ -53,6 +61,9 @@ pub fn tokenize(string: &str) -> Vec<Token> {
         (ob, "ob"),
         (cb, "cb"),
         (semi, "semi"),
+        (bitcp, "bitcp"),
+        (dec, "dec"),
+        (neg, "neg"),
 
         (constant, "constant"),
         (ident, "ident"),
@@ -102,6 +113,8 @@ pub fn tokenize(string: &str) -> Vec<Token> {
             "ob" => Token::OpenBrace,
             "cb" => Token::CloseBrace,
             "semi" => Token::Semicolon,
+            "bitcp" => Token::BitwiseComplment,
+            "neg" => Token::Negation,
 
             "ident" => {
                 //TODO: less hacky way of this
@@ -115,6 +128,8 @@ pub fn tokenize(string: &str) -> Vec<Token> {
                 let constant = value.to_string().parse::<i32>().expect("unable to convert string to number");
                 Token::Constant(constant)
             },
+
+            "dec" => unimplemented!("Decrement"),
             x => panic!("unknown longest name {}", x)
         };
 

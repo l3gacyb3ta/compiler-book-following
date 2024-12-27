@@ -28,6 +28,7 @@ impl From::<Program> for AProgram {
         fn expression_to_operand(exp: Expression) -> Operand {
             match exp {
                 Expression::Constant(x) => Operand::Imm(x),
+                _ => unimplemented!(),
             }
         }
 
