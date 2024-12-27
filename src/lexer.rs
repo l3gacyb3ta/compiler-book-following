@@ -54,15 +54,15 @@ pub fn tokenize(string: &str) -> Vec<Token> {
         (cb, "cb"),
         (semi, "semi"),
 
-        (ident, "ident"),
         (constant, "constant"),
+        (ident, "ident"),
     ];
 
     let mut output = vec![];
     let mut input_feed = string.to_string();
-    let mut longest_length = 0;
-    let mut longest_name: &str = "";
-    let mut value = "";
+    let mut longest_length: usize;
+    let mut longest_name: &str ;
+    let mut value ;
 
 
     while input_feed.len() != 0 {
@@ -103,7 +103,14 @@ pub fn tokenize(string: &str) -> Vec<Token> {
             "cb" => Token::CloseBrace,
             "semi" => Token::Semicolon,
 
-            "ident" => Token::Identifier(value.into()),
+            "ident" => {
+                //TODO: less hacky way of this
+                match value {
+                    "return" => Token::Return,
+                    "int" => Token::Int,
+                    value => Token::Identifier(value.into())
+                }
+            },
             "constant" => {
                 let constant = value.to_string().parse::<i32>().expect("unable to convert string to number");
                 Token::Constant(constant)

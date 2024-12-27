@@ -10,8 +10,8 @@ gcc -E -P $1 -o $1.i
 ## run the compiler
 cargo run -- $1.i 
 
-$PREFIX-gcc out.s -o $1.compiled
+$PREFIX-gcc --sysroot=/usr/x86_64-redhat-linux/sys-root/fc41/ out.s -o $1.compiled
 
 echo "CLEANUP"
 
-rm out.s $1.i
+rm $1.i
