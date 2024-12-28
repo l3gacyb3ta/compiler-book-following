@@ -20,6 +20,11 @@ pub enum Token {
     BitwiseComplment,
     Decrement,
 
+    Plus,
+    Asterix,
+    Slash,
+    Percent,
+
     Int,
     Void,
     Return,
@@ -47,7 +52,14 @@ pub fn tokenize(string: &str) -> Vec<Token> {
     let semi = re!("^;");
     let bitcp = re!("^~");
     let neg = re!("^-");
+    let plus = re!(r"^\+");
+    let asterix = re!(r"^\*");
+    let slash = re!("^/");
+    let percent = re!("^%");
+
+
     let dec = re!("^--");
+
 
 
 
@@ -64,6 +76,11 @@ pub fn tokenize(string: &str) -> Vec<Token> {
         (bitcp, "bitcp"),
         (dec, "dec"),
         (neg, "neg"),
+
+        (plus, "plus"),
+        (asterix, "asterix"),
+        (slash, "slash"),
+        (percent, "percent"),
 
         (constant, "constant"),
         (ident, "ident"),
@@ -115,6 +132,11 @@ pub fn tokenize(string: &str) -> Vec<Token> {
             "semi" => Token::Semicolon,
             "bitcp" => Token::BitwiseComplment,
             "neg" => Token::Negation,
+
+            "plus" => Token::Plus,
+            "asterix" => Token::Asterix,
+            "slash" => Token::Slash,
+            "percent" => Token::Percent,
 
             "ident" => {
                 //TODO: less hacky way of this

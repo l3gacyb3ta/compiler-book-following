@@ -22,8 +22,24 @@ pub enum Statement {
 
 #[derive(Debug, Clone)]
 pub enum Expression {
+    Factor(Factor),
+    Binary{lhs: Box<Expression>, op: BinOp, rhs: Box<Expression>}
+}
+
+#[derive(Debug, Clone)]
+pub enum Factor {
     Constant(i32),
-    Unary{op: UnaryOp, exp: Box<Expression>}
+    Unary{op: UnaryOp, fac: Box<Factor>},
+    Expression(Box<Expression>)
+}
+
+#[derive(Debug, Clone)]
+pub enum BinOp {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Modulo
 }
 
 #[derive(Debug, Clone)]
@@ -67,7 +83,75 @@ impl Parsable for UnaryOp {
     }
 }
 
+impl Parsable for BinOp {
+    fn parse(tokens: &mut Vec<Token>) -> Self {
+        let token = tokens.pop().expect("Expected binary op");
+
+        match token {
+            Token::Negation => BinOp::Subtract,
+            Token::Plus => BinOp::Add,
+            Token::Slash => BinOp::Divide,
+            Token::Asterix => BinOp::Multiply,
+            Token::Percent => BinOp::Modulo,
+            x => panic!("Unknown binary op {:?}", x)
+        }
+    }
+}
+
+impl BinOp {
+    pub fn precedance(&self) -> i32 {
+        match self {
+            BinOp::Add => 45,
+            BinOp::Subtract => 45,
+            BinOp::Multiply => 50,
+            BinOp::Divide => 50,
+            BinOp::Modulo => 50,
+        }
+    }
+
+    pub fn token_precedance(token: Token) -> i32 {
+        match token {
+            Token::Plus => 45,
+            Token::Negation => 45,
+            Token::Asterix => 50,
+            Token::Slash => 50,
+            Token::Percent => 50,
+            _ => -1
+        }
+    }
+
+    pub fn is_bin_op(next_token: &Token) -> bool {
+        token_is(next_token, &Token::Plus)
+        || token_is(next_token, &Token::Negation)
+        || token_is(next_token, &Token::Asterix)
+        || token_is(next_token, &Token::Slash)
+        || token_is(next_token, &Token::Percent)
+    }
+}
+
+
 impl Parsable for Expression {
+    fn parse(tokens: &mut Vec<Token>) -> Self {
+        fn parse_precedance(tokens: &mut Vec<Token>, min_prec: i32) -> Expression {
+            let mut lhs = Expression::Factor(Factor::parse(tokens));
+            let mut next_token = peek(tokens);
+        
+            while BinOp::is_bin_op(&next_token) && BinOp::token_precedance(next_token) >= min_prec {
+                let operator = BinOp::parse(tokens);
+                let rhs = parse_precedance(tokens, operator.precedance() + 1);
+                lhs = Expression::Binary { lhs: Box::new(lhs), op: operator, rhs: Box::new(rhs) };
+        
+                next_token = peek(tokens);
+            }
+        
+            return lhs;
+        }
+
+        parse_precedance(tokens, 0)
+    }
+}
+
+impl Parsable for Factor {
     fn parse(tokens: &mut Vec<Token>) -> Self {
         let next_token = peek(tokens);
 
@@ -79,19 +163,19 @@ impl Parsable for Expression {
                 _ => unreachable!()
             };
     
-            Expression::Constant(value)
+            Factor::Constant(value)
         } else if token_is(&next_token, &Token::BitwiseComplment) || token_is(&next_token, &Token::Negation) {
             let operator = UnaryOp::parse(tokens);
-            let inner_expression = Expression::parse(tokens);
+            let inner_factor = Factor::parse(tokens);
 
-            Expression::Unary { op: operator, exp: Box::new(inner_expression) }
+            Factor::Unary { op: operator, fac: Box::new(inner_factor) }
 
         } else if token_is(&next_token, &Token::OpenParen) {
             expect(tokens, Token::OpenParen);
             let inner = Expression::parse(tokens);
             expect(tokens, Token::CloseParen);
 
-            inner
+            Factor::Expression(Box::new(inner))
         } else {
             panic!("Malformed Expression")
         }

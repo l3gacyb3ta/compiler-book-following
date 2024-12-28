@@ -1,7 +1,4 @@
-use crate::{
-    parser::{Statement, UnaryOp},
-    tacky_gen::{TFunction, TInstruction, TProgram, TUnaryOp, Val},
-};
+use crate::tacky_gen::{TBinOp, TFunction, TInstruction, TProgram, TUnaryOp, Val};
 
 #[derive(Clone, Debug)]
 pub struct AProgram {
@@ -16,8 +13,21 @@ pub struct AFunction {
 
 #[derive(Clone, Copy, Debug)]
 pub enum Instruction {
-    Mov { src: Operand, dst: Operand },
-    Unary { op: AUnOp, operand: Operand },
+    Mov {
+        src: Operand,
+        dst: Operand,
+    },
+    Unary {
+        op: AUnOp,
+        operand: Operand,
+    },
+    Binary {
+        op: ABinOp,
+        src: Operand,
+        dst: Operand,
+    },
+    Idiv(Operand),
+    Cdq,
     AllocateStack(usize),
     Ret,
 }
@@ -33,7 +43,9 @@ pub enum Operand {
 #[derive(Clone, Copy, Debug)]
 pub enum Reg {
     AX,
+    DX,
     R10,
+    R11,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -42,19 +54,46 @@ pub enum AUnOp {
     Not,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum ABinOp {
+    Add,
+    Sub,
+    Mult,
+}
+
+impl From<Val> for Operand {
+    fn from(val: Val) -> Self {
+        match val {
+            Val::Constant(x) => Operand::Imm(x),
+            Val::Var(i) => Operand::Pseudo(i),
+        }
+    }
+}
+
+impl From<TUnaryOp> for AUnOp {
+    fn from(unop: TUnaryOp) -> Self {
+        match unop {
+            TUnaryOp::Complement => AUnOp::Not,
+            TUnaryOp::Negate => AUnOp::Neg,
+        }
+    }
+}
+
+impl Into<Operand> for Reg {
+    fn into(self) -> Operand {
+        Operand::Register(self)
+    }
+}
+
 impl From<TProgram> for AProgram {
     fn from(program: TProgram) -> Self {
-        fn tacky_un_to_assembly(unop: TUnaryOp) -> AUnOp {
-            match unop {
-                TUnaryOp::Complement => AUnOp::Not,
-                TUnaryOp::Negate => AUnOp::Neg,
-            }
-        }
-
-        fn tacky_operand_to_op(val: Val) -> Operand {
-            match val {
-                Val::Constant(x) => Operand::Imm(x),
-                Val::Var(i) => Operand::Pseudo(i),
+        fn tacky_bin_to_assembly(binop: TBinOp) -> ABinOp {
+            match binop {
+                TBinOp::Add => ABinOp::Add,
+                TBinOp::Subtract => ABinOp::Sub,
+                TBinOp::Multiply => ABinOp::Mult,
+                TBinOp::Divide => todo!(),
+                TBinOp::Remainder => todo!(),
             }
         }
 
@@ -63,8 +102,8 @@ impl From<TProgram> for AProgram {
                 TInstruction::Return(val) => {
                     vec![
                         Instruction::Mov {
-                            src: tacky_operand_to_op(val),
-                            dst: Operand::Register(Reg::AX),
+                            src: val.into(),
+                            dst: Reg::AX.into(),
                         },
                         Instruction::Ret,
                     ]
@@ -72,14 +111,62 @@ impl From<TProgram> for AProgram {
                 TInstruction::Unary { unary_op, src, dst } => {
                     vec![
                         Instruction::Mov {
-                            src: tacky_operand_to_op(src),
-                            dst: tacky_operand_to_op(dst),
+                            src: src.into(),
+                            dst: dst.into(),
                         },
                         Instruction::Unary {
-                            op: tacky_un_to_assembly(unary_op),
-                            operand: tacky_operand_to_op(dst),
+                            op: unary_op.into(),
+                            operand: dst.into(),
                         },
                     ]
+                }
+                TInstruction::Binary {
+                    binary_op,
+                    src1,
+                    src2,
+                    dst,
+                } => {
+                    match binary_op {
+                        TBinOp::Add | TBinOp::Subtract | TBinOp::Multiply => {
+                            // Simple Binary Case
+
+                            vec![
+                                Instruction::Mov {
+                                    src: src1.into(),
+                                    dst: dst.into(),
+                                },
+                                Instruction::Binary {
+                                    op: tacky_bin_to_assembly(binary_op),
+                                    src: src2.into(),
+                                    dst: dst.into(),
+                                },
+                            ]
+                        }
+                        TBinOp::Divide => vec![
+                            Instruction::Mov {
+                                src: src1.into(),
+                                dst: Reg::AX.into(),
+                            },
+                            Instruction::Cdq,
+                            Instruction::Idiv(src2.into()),
+                            Instruction::Mov {
+                                src: Reg::AX.into(),
+                                dst: dst.into(),
+                            },
+                        ],
+                        TBinOp::Remainder => vec![
+                            Instruction::Mov {
+                                src: src1.into(),
+                                dst: Reg::AX.into(),
+                            },
+                            Instruction::Cdq,
+                            Instruction::Idiv(src2.into()),
+                            Instruction::Mov {
+                                src: Reg::DX.into(),
+                                dst: dst.into(),
+                            },
+                        ],
+                    }
                 }
             }
         }
@@ -114,6 +201,12 @@ impl From<TProgram> for AProgram {
                             op: *op,
                             operand: fix_operand(*operand, &mut offset_map, &mut offset),
                         },
+                        Instruction::Binary { op, src, dst } => Instruction::Binary {
+                            op: *op,
+                            src: fix_operand(*src, &mut offset_map, &mut offset),
+                            dst: fix_operand(*dst, &mut offset_map, &mut offset),
+                        },
+                        Instruction::Idiv(op) => Instruction::Idiv(fix_operand(*op, &mut offset_map, &mut offset)),
                         x => *x,
                     })
                     .collect(),
@@ -142,6 +235,43 @@ impl From<TProgram> for AProgram {
                         });
                     } else {
                         output.push(*inst)
+                    }
+                },
+                Instruction::Binary { src, dst, op } => {
+                    match op {
+                        ABinOp::Add | ABinOp::Sub => {
+                            if std::mem::discriminant(&src) == std::mem::discriminant(&dst) && std::mem::discriminant(&src) == std::mem::discriminant(&Operand::Stack(0)) {
+                                output.push(Instruction::Mov {
+                                    src,
+                                    dst: Operand::Register(Reg::R10),
+                                });
+                                output.push(Instruction::Binary {
+                                    src: Operand::Register(Reg::R10),
+                                    dst,
+                                    op
+                                });
+                            } else {
+                                output.push(*inst)
+                            }
+                        },
+                        ABinOp::Mult => {
+                            if std::mem::discriminant(&dst) == std::mem::discriminant(&Operand::Stack(0)) {
+                                output.push(Instruction::Mov { src: dst, dst: Reg::R11.into() });
+                                output.push(Instruction::Binary { op, src, dst: Reg::R11.into() });
+                                output.push(Instruction::Mov { src: Reg::R11.into(), dst });
+                            } else {
+                                output.push(*inst)
+                            }
+                        }
+                    }
+                },
+                Instruction::Idiv(op) => {
+                    match op {
+                        Operand::Imm(x) => {
+                            output.push(Instruction::Mov { src: op, dst: Reg::R10.into() });
+                            output.push(Instruction::Idiv(Reg::R10.into()));
+                        },
+                        _ => output.push(*inst)
                     }
                 }
                 otherwise => output.push(otherwise),
