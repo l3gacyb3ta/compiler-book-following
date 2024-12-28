@@ -1,9 +1,11 @@
 mod lexer;
 mod parser;
+mod tacky_gen;
 mod code_gen;
 mod code_emit;
 
 use code_gen::AProgram;
+use tacky_gen::TProgram;
 use code_emit::CodeEmission;
 use lexer::tokenize;
 use parser::{Parsable, Program};
@@ -27,9 +29,15 @@ fn main() {
 
     println!("{:#?}\n--------", program);
 
-    let dsl: AProgram = program.into();
+    let tacky: TProgram = program.into();
 
-    let assembly = dsl.emit();
+    println!("{:#?}\n--------", tacky);
+
+    let assembly_dsl: AProgram = tacky.into();
+
+    println!("{:#?}", assembly_dsl);
+
+    let assembly = assembly_dsl.emit();
 
     fs::write("./out.s", assembly).unwrap();
 }
