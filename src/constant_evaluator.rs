@@ -8,15 +8,17 @@ fn is_factor_constant(fac: Factor) -> bool {
     }
 }
 
+/// If a thing is made up off all constant parts, it's constant
 pub fn is_constant(exp: Expression) -> bool {
     match exp {
-        Expression::Binary { lhs, op, rhs } => {
+        Expression::Binary { lhs, op: _, rhs } => {
             is_constant(*lhs) && is_constant(*rhs)
         },
         Expression::Factor(factor) => is_factor_constant(factor),
     }
 }
 
+/// Evaluate a factor, probably also evaluting sub-expressions. 
 fn evaluate_constants_factor(fac: Factor) -> Option<i32> {
     if !is_factor_constant(fac.clone()) {
         return None
@@ -43,13 +45,17 @@ fn evaluate_constants_factor(fac: Factor) -> Option<i32> {
         Factor::Expression(expression) => expression_to_number(*expression.clone()),
     }
 }
+/// Rust Boolean to integer bool from C 
 fn b_to_i(b: bool) -> i32 {
     if b {1} else {0}
 }
+
+/// integer bool from C to Rust Boolean
 fn i_to_b(i: i32) -> bool {
     if i == 1 {true} else {false}
 }
 
+/// convert an expression into it's evaluated result, or nothing if it's not constant
 fn expression_to_number(exp: Expression) -> Option<i32> {
     match exp {
         Expression::Factor(factor) => evaluate_constants_factor(factor),
@@ -82,6 +88,7 @@ fn expression_to_number(exp: Expression) -> Option<i32> {
     }
 }
 
+/// Transform an expression if it's constant
 fn evaluate_constants_expression(exp: Expression) -> Expression {
     match exp.clone() {
         Expression::Factor(factor) => {

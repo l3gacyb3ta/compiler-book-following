@@ -1,5 +1,3 @@
-use std::fmt::format;
-
 use crate::{code_gen::{ABinOp, AFunction, AProgram, AUnOp, CondCode, Instruction, Operand, Reg}, tacky_gen::Identifier};
 
 pub trait CodeEmission {
@@ -36,6 +34,15 @@ impl CodeEmission for Operand {
             Operand::Register(reg) => reg.emit(),
             Operand::Pseudo(_) => unreachable!("Pseudo Operands shouldn't be Code Emitted"),
             Operand::Stack(x) => format!("{}(%rbp)", x),
+        }
+    }
+}
+
+impl Operand {
+    pub fn emit_1byte(&self) -> String {
+        match self {
+            Operand::Register(reg) => reg.emit_1byte(),
+            x => x.emit()
         }
     }
 }

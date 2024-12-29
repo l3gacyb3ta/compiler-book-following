@@ -3,7 +3,7 @@ main:
 	pushq	%rbp
 	movq	%rsp, %rbp
 	
-	subq	$4, %rsp
+	subq	$0, %rsp
 	movl	$1, %eax
 	movq	%rbp, %rsp
 	popq	%rbp

@@ -270,11 +270,13 @@ impl From<TProgram> for AProgram {
             }
         }
 
+        /// for each instruction that uses operands, replace them with an offset into the statck
         fn replace_pseudo(instructions: Vec<Instruction>) -> (Vec<Instruction>, i32) {
             let mut offset_map: Vec<i32> = vec![];
             let mut offset = -4;
 
             fn fix_operand(op: Operand, offset_map: &mut Vec<i32>, offset: &mut i32) -> Operand {
+                // The operand's unique, sequential ID is used to not have to use a hashmap and instead use a list
                 match op {
                     Operand::Pseudo(i) => {
                         if i + 1 > offset_map.len() {
@@ -323,10 +325,11 @@ impl From<TProgram> for AProgram {
             )
         }
 
-        /// allocate stack space and remove illegal moves
+        /// allocate stack space and remove illegal moves, as well as clean up the pseudo identifiers
         fn cleanup(instructions: Vec<Instruction>) -> Vec<Instruction> {
             let (mut instructions, final_offset) = replace_pseudo(instructions);
-            let mut allocate = vec![Instruction::AllocateStack(final_offset.abs() as usize)];
+            // allocate the actual space on the stack. The final offset will always be +4 too big.
+            let mut allocate = vec![Instruction::AllocateStack(final_offset.abs() as usize - 4)];
             allocate.append(&mut instructions);
 
             let mut output = vec![];

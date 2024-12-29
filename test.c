@@ -1,3 +1,3 @@
 int main() {
-    return 3 < 5;
+    return 8 * 3 + 4 > 3 * 3-1 /5;
 }

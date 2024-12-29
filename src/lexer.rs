@@ -40,15 +40,14 @@ pub enum Token {
     Return,
 }
 
-// While Input isn't Empty:
-//   if Input starts with whitespace:
-//     trim whitespace
-//   else:
-//     find longest match for any regex
-//     if no match is found, raise an error
-//     convert matching substring into a token
-//     remove matching substring from start of input
-
+/// While Input isn't Empty:
+///   if Input starts with whitespace:
+///     trim whitespace
+///   else:
+///     find longest match for any regex
+///     if no match is found, raise an error
+///     convert matching substring into a token
+///     remove matching substring from start of input
 pub fn tokenize(string: &str) -> Vec<Token> {
     let ident = re!(r"^[a-zA-Z_]\w*\b");
     let constant = re!(r"^[0-9]+\b");
