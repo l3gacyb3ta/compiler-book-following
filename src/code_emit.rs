@@ -1,4 +1,6 @@
-use crate::code_gen::{ABinOp, AFunction, AProgram, AUnOp, Instruction, Operand, Reg};
+use std::fmt::format;
+
+use crate::{code_gen::{ABinOp, AFunction, AProgram, AUnOp, CondCode, Instruction, Operand, Reg}, tacky_gen::Identifier};
 
 pub trait CodeEmission {
     fn emit(&self) -> String;
@@ -16,6 +18,17 @@ impl CodeEmission for Reg {
     }
 }
 
+impl Reg {
+    pub fn emit_1byte(&self) -> String {
+        match self {
+            Reg::AX => "%al",
+            Reg::DX => "%dl",
+            Reg::R10 => "%r10b",
+            Reg::R11 => "%r11b",
+        }.to_owned()
+    }
+}
+
 impl CodeEmission for Operand {
     fn emit(&self) -> String {
         match self {
@@ -23,7 +36,6 @@ impl CodeEmission for Operand {
             Operand::Register(reg) => reg.emit(),
             Operand::Pseudo(_) => unreachable!("Pseudo Operands shouldn't be Code Emitted"),
             Operand::Stack(x) => format!("{}(%rbp)", x),
-            
         }
     }
 }
@@ -46,6 +58,24 @@ impl CodeEmission for ABinOp {
         }.to_owned()
     }
 }
+
+impl CodeEmission for CondCode {
+    fn emit(&self) -> String {
+        match self {
+            CondCode::E => "e",
+            CondCode::NE => "ne",
+            CondCode::G => "g",
+            CondCode::GE => "ge",
+            CondCode::L => "l",
+            CondCode::LE => "le",
+        }.to_owned()
+    }
+}
+
+fn ident_to_string(ident: Identifier) -> String {
+    format!("tmp.{}.{}", ident.1, ident.0)
+}
+
 impl CodeEmission for Instruction {
     fn emit(&self) -> String {
         match self {
@@ -58,7 +88,11 @@ impl CodeEmission for Instruction {
             Instruction::Binary { op, src, dst } => format!("{}\t{}, {}", op.emit(), src.emit(), dst.emit()),
             Instruction::Idiv(operand) => format!("idiv\t{}", operand.emit()),
             Instruction::Cdq => "cdq".to_owned(),
-
+            Instruction::Cmp { src1, src2 } => format!("cmpl\t{}, {}", src1.emit(), src2.emit()),
+            Instruction::Jmp(label) => format!("jmp\t.L{}", ident_to_string(label.clone())),
+            Instruction::JmpCC { cc, ident } => format!("j{}\t.L{}", cc.emit(), ident_to_string(ident.clone())),
+            Instruction::SetCC { cc, src } => format!("set{}\t{}", cc.emit(), src.emit()),
+            Instruction::Label(l) => format!(".L{}:", ident_to_string(l.clone())),
         }
     }
 }

@@ -1,4 +1,4 @@
-use crate::tacky_gen::{TBinOp, TFunction, TInstruction, TProgram, TUnaryOp, Val};
+use crate::tacky_gen::{Identifier, TBinOp, TFunction, TInstruction, TProgram, TUnaryOp, Val};
 
 #[derive(Clone, Debug)]
 pub struct AProgram {
@@ -11,7 +11,7 @@ pub struct AFunction {
     pub instructions: Vec<Instruction>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub enum Instruction {
     Mov {
         src: Operand,
@@ -26,10 +26,34 @@ pub enum Instruction {
         src: Operand,
         dst: Operand,
     },
+    Cmp {
+        src1: Operand,
+        src2: Operand,
+    },
     Idiv(Operand),
     Cdq,
+    Jmp(Identifier),
+    JmpCC {
+        cc: CondCode,
+        ident: Identifier,
+    },
+    SetCC {
+        cc: CondCode,
+        src: Operand,
+    },
+    Label(Identifier),
     AllocateStack(usize),
     Ret,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum CondCode {
+    E,
+    NE,
+    G,
+    GE,
+    L,
+    LE,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -65,7 +89,7 @@ impl From<Val> for Operand {
     fn from(val: Val) -> Self {
         match val {
             Val::Constant(x) => Operand::Imm(x),
-            Val::Var(i) => Operand::Pseudo(i),
+            Val::Var(i) => Operand::Pseudo(i.0),
         }
     }
 }
@@ -75,6 +99,7 @@ impl From<TUnaryOp> for AUnOp {
         match unop {
             TUnaryOp::Complement => AUnOp::Not,
             TUnaryOp::Negate => AUnOp::Neg,
+            TUnaryOp::Not => AUnOp::Not, //TKTK
         }
     }
 }
@@ -92,8 +117,7 @@ impl From<TProgram> for AProgram {
                 TBinOp::Add => ABinOp::Add,
                 TBinOp::Subtract => ABinOp::Sub,
                 TBinOp::Multiply => ABinOp::Mult,
-                TBinOp::Divide => todo!(),
-                TBinOp::Remainder => todo!(),
+                _ => unreachable!(),
             }
         }
 
@@ -109,10 +133,27 @@ impl From<TProgram> for AProgram {
                     ]
                 }
                 TInstruction::Unary { unary_op, src, dst } => {
+                    if std::mem::discriminant(&unary_op) == std::mem::discriminant(&TUnaryOp::Not) {
+                        return vec![
+                            Instruction::Cmp {
+                                src1: Operand::Imm(0),
+                                src2: src.into(),
+                            },
+                            Instruction::Mov {
+                                src: Operand::Imm(0),
+                                dst: dst.clone().into(),
+                            },
+                            Instruction::SetCC {
+                                cc: CondCode::E,
+                                src: dst.into(),
+                            },
+                        ];
+                    }
+
                     vec![
                         Instruction::Mov {
                             src: src.into(),
-                            dst: dst.into(),
+                            dst: dst.clone().into(),
                         },
                         Instruction::Unary {
                             op: unary_op.into(),
@@ -126,14 +167,14 @@ impl From<TProgram> for AProgram {
                     src2,
                     dst,
                 } => {
-                    match binary_op {
+                    match binary_op.clone() {
                         TBinOp::Add | TBinOp::Subtract | TBinOp::Multiply => {
                             // Simple Binary Case
 
                             vec![
                                 Instruction::Mov {
                                     src: src1.into(),
-                                    dst: dst.into(),
+                                    dst: dst.clone().into(),
                                 },
                                 Instruction::Binary {
                                     op: tacky_bin_to_assembly(binary_op),
@@ -166,8 +207,66 @@ impl From<TProgram> for AProgram {
                                 dst: dst.into(),
                             },
                         ],
+                        TBinOp::GreaterThan
+                        | TBinOp::LessOrEqual
+                        | TBinOp::LessThan
+                        | TBinOp::NotEqual
+                        | TBinOp::Equal
+                        | TBinOp::GreaterOrEqual => {
+                            let cc = match binary_op {
+                                TBinOp::GreaterThan => CondCode::G,
+                                TBinOp::Equal => CondCode::E,
+                                TBinOp::NotEqual => CondCode::NE,
+                                TBinOp::LessThan => CondCode::L,
+                                TBinOp::LessOrEqual => CondCode::LE,
+                                TBinOp::GreaterOrEqual => CondCode::GE,
+                                x => unreachable!("Shouldn't be a Compare of {:?}", x),
+                            };
+
+                            vec![
+                                Instruction::Cmp {
+                                    src1: src2.into(),
+                                    src2: src1.into(),
+                                },
+                                Instruction::Mov {
+                                    src: Operand::Imm(0),
+                                    dst: dst.clone().into(),
+                                },
+                                Instruction::SetCC {
+                                    cc,
+                                    src: dst.into(),
+                                },
+                            ]
+                        }
                     }
                 }
+
+                TInstruction::Copy { src, dst } => vec![Instruction::Mov {
+                    src: src.into(),
+                    dst: dst.into(),
+                }],
+                TInstruction::Jump { target } => vec![Instruction::Jmp(target)],
+                TInstruction::JumpIfZero { condition, target } => vec![
+                    Instruction::Cmp {
+                        src1: Operand::Imm(0),
+                        src2: condition.into(),
+                    },
+                    Instruction::JmpCC {
+                        cc: CondCode::E,
+                        ident: target,
+                    },
+                ],
+                TInstruction::JumpIfNotZero { condition, target } => vec![
+                    Instruction::Cmp {
+                        src1: Operand::Imm(0),
+                        src2: condition.into(),
+                    },
+                    Instruction::JmpCC {
+                        cc: CondCode::NE,
+                        ident: target,
+                    },
+                ],
+                TInstruction::Label(i) => vec![Instruction::Label(i)],
             }
         }
 
@@ -192,22 +291,32 @@ impl From<TProgram> for AProgram {
             (
                 instructions
                     .iter()
-                    .map(|inst| match inst {
+                    .map(|inst| match inst.clone() {
                         Instruction::Mov { src, dst } => Instruction::Mov {
-                            src: fix_operand(*src, &mut offset_map, &mut offset),
-                            dst: fix_operand(*dst, &mut offset_map, &mut offset),
+                            src: fix_operand(src, &mut offset_map, &mut offset),
+                            dst: fix_operand(dst, &mut offset_map, &mut offset),
                         },
                         Instruction::Unary { op, operand } => Instruction::Unary {
-                            op: *op,
-                            operand: fix_operand(*operand, &mut offset_map, &mut offset),
+                            op: op,
+                            operand: fix_operand(operand, &mut offset_map, &mut offset),
                         },
                         Instruction::Binary { op, src, dst } => Instruction::Binary {
-                            op: *op,
-                            src: fix_operand(*src, &mut offset_map, &mut offset),
-                            dst: fix_operand(*dst, &mut offset_map, &mut offset),
+                            op: op,
+                            src: fix_operand(src, &mut offset_map, &mut offset),
+                            dst: fix_operand(dst, &mut offset_map, &mut offset),
                         },
-                        Instruction::Idiv(op) => Instruction::Idiv(fix_operand(*op, &mut offset_map, &mut offset)),
-                        x => *x,
+                        Instruction::Idiv(op) => {
+                            Instruction::Idiv(fix_operand(op, &mut offset_map, &mut offset))
+                        }
+                        Instruction::SetCC { cc, src } => Instruction::SetCC {
+                            cc,
+                            src: fix_operand(src, &mut offset_map, &mut offset),
+                        },
+                        Instruction::Cmp { src1, src2 } => Instruction::Cmp {
+                            src1: fix_operand(src1, &mut offset_map, &mut offset),
+                            src2: fix_operand(src2, &mut offset_map, &mut offset),
+                        },
+                        x => x,
                     })
                     .collect(),
                 offset,
@@ -222,9 +331,38 @@ impl From<TProgram> for AProgram {
 
             let mut output = vec![];
 
-            allocate.iter().for_each(|inst| match *inst {
+            allocate.iter().for_each(|inst| match inst.clone() {
+                Instruction::Cmp { src1, src2 } => {
+                    if std::mem::discriminant(&src2) == std::mem::discriminant(&Operand::Imm(0)) {
+                        output.push(Instruction::Mov {
+                            src: src2,
+                            dst: Reg::R11.into(),
+                        });
+                        output.push(Instruction::Cmp {
+                            src1,
+                            src2: Reg::R11.into(),
+                        });
+                    } else if std::mem::discriminant(&src1) == std::mem::discriminant(&src2)
+                        && std::mem::discriminant(&src1)
+                            == std::mem::discriminant(&Operand::Stack(0))
+                    {
+                        output.push(Instruction::Mov {
+                            src: src1,
+                            dst: Operand::Register(Reg::R10),
+                        });
+                        output.push(Instruction::Cmp {
+                            src1: Operand::Register(Reg::R10),
+                            src2,
+                        });
+                    } else {
+                        output.push(inst.clone())
+                    }
+                }
                 Instruction::Mov { src, dst } => {
-                    if std::mem::discriminant(&src) == std::mem::discriminant(&dst) {
+                    if std::mem::discriminant(&src) == std::mem::discriminant(&dst)
+                        && std::mem::discriminant(&src)
+                            == std::mem::discriminant(&Operand::Stack(0))
+                    {
                         output.push(Instruction::Mov {
                             src,
                             dst: Operand::Register(Reg::R10),
@@ -234,46 +372,60 @@ impl From<TProgram> for AProgram {
                             dst,
                         });
                     } else {
-                        output.push(*inst)
+                        output.push(inst.clone())
                     }
-                },
-                Instruction::Binary { src, dst, op } => {
-                    match op {
-                        ABinOp::Add | ABinOp::Sub => {
-                            if std::mem::discriminant(&src) == std::mem::discriminant(&dst) && std::mem::discriminant(&src) == std::mem::discriminant(&Operand::Stack(0)) {
-                                output.push(Instruction::Mov {
-                                    src,
-                                    dst: Operand::Register(Reg::R10),
-                                });
-                                output.push(Instruction::Binary {
-                                    src: Operand::Register(Reg::R10),
-                                    dst,
-                                    op
-                                });
-                            } else {
-                                output.push(*inst)
-                            }
-                        },
-                        ABinOp::Mult => {
-                            if std::mem::discriminant(&dst) == std::mem::discriminant(&Operand::Stack(0)) {
-                                output.push(Instruction::Mov { src: dst, dst: Reg::R11.into() });
-                                output.push(Instruction::Binary { op, src, dst: Reg::R11.into() });
-                                output.push(Instruction::Mov { src: Reg::R11.into(), dst });
-                            } else {
-                                output.push(*inst)
-                            }
+                }
+                Instruction::Binary { src, dst, op } => match op {
+                    ABinOp::Add | ABinOp::Sub => {
+                        if std::mem::discriminant(&src) == std::mem::discriminant(&dst)
+                            && std::mem::discriminant(&src)
+                                == std::mem::discriminant(&Operand::Stack(0))
+                        {
+                            output.push(Instruction::Mov {
+                                src,
+                                dst: Operand::Register(Reg::R10),
+                            });
+                            output.push(Instruction::Binary {
+                                src: Operand::Register(Reg::R10),
+                                dst,
+                                op,
+                            });
+                        } else {
+                            output.push(inst.clone())
+                        }
+                    }
+                    ABinOp::Mult => {
+                        if std::mem::discriminant(&dst)
+                            == std::mem::discriminant(&Operand::Stack(0))
+                        {
+                            output.push(Instruction::Mov {
+                                src: dst,
+                                dst: Reg::R11.into(),
+                            });
+                            output.push(Instruction::Binary {
+                                op,
+                                src,
+                                dst: Reg::R11.into(),
+                            });
+                            output.push(Instruction::Mov {
+                                src: Reg::R11.into(),
+                                dst,
+                            });
+                        } else {
+                            output.push(inst.clone())
                         }
                     }
                 },
-                Instruction::Idiv(op) => {
-                    match op {
-                        Operand::Imm(x) => {
-                            output.push(Instruction::Mov { src: op, dst: Reg::R10.into() });
-                            output.push(Instruction::Idiv(Reg::R10.into()));
-                        },
-                        _ => output.push(*inst)
+                Instruction::Idiv(op) => match op {
+                    Operand::Imm(_) => {
+                        output.push(Instruction::Mov {
+                            src: op,
+                            dst: Reg::R10.into(),
+                        });
+                        output.push(Instruction::Idiv(Reg::R10.into()));
                     }
-                }
+                    _ => output.push(inst.clone()),
+                },
                 otherwise => output.push(otherwise),
             });
 

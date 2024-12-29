@@ -20,6 +20,16 @@ pub enum Token {
     BitwiseComplment,
     Decrement,
 
+    Exclamation,
+    And,
+    Or,
+    Equality,
+    NotEquality,
+    LessThan,
+    GreaterThan,
+    LTEqualTo,
+    GTEqualTo,
+
     Plus,
     Asterix,
     Slash,
@@ -57,6 +67,16 @@ pub fn tokenize(string: &str) -> Vec<Token> {
     let slash = re!("^/");
     let percent = re!("^%");
 
+    let exlm = re!("^!");
+    let and = re!("^&&");
+    let or = re!(r"^\|\|");
+    let eqal = re!("^==");
+    let neqal = re!("^!=");
+    let lt = re!("^<");
+    let gt = re!("^>");
+    let lteq = re!("^<=");
+    let gteq = re!("^>=");
+
 
     let dec = re!("^--");
 
@@ -81,6 +101,16 @@ pub fn tokenize(string: &str) -> Vec<Token> {
         (asterix, "asterix"),
         (slash, "slash"),
         (percent, "percent"),
+
+        (exlm, "exlm"),
+        (and, "and"),
+        (or, "or"),
+        (eqal, "eqal"),
+        (neqal, "neqal"),
+        (lt, "lt"),
+        (gt, "gt"),
+        (lteq, "lteq"),
+        (gteq, "gteq"),
 
         (constant, "constant"),
         (ident, "ident"),
@@ -137,6 +167,16 @@ pub fn tokenize(string: &str) -> Vec<Token> {
             "asterix" => Token::Asterix,
             "slash" => Token::Slash,
             "percent" => Token::Percent,
+
+            "exlm" => Token::Exclamation,
+            "and" => Token::And,
+            "or" => Token::Or,
+            "eqal" => Token::Equality,
+            "neqal" => Token::NotEquality,
+            "gt" => Token::GreaterThan,
+            "lt" => Token::LessThan,
+            "gteq" => Token::GTEqualTo,
+            "lteq" => Token::LTEqualTo,
 
             "ident" => {
                 //TODO: less hacky way of this

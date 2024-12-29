@@ -33,19 +33,23 @@ pub enum Factor {
     Expression(Box<Expression>)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BinOp {
     Add,
     Subtract,
     Multiply,
     Divide,
-    Modulo
+    Modulo,
+    And, Or,
+    Equal, NotEqual, LessThan, LessOrEqual,
+    GreaterThan, GreaterOrEqual,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum UnaryOp {
     Complement,
-    Negate
+    Negate,
+    Not
 }
 
 fn expect(tokens: &mut Vec<Token>, generic_token: Token) -> Token {
@@ -78,6 +82,7 @@ impl Parsable for UnaryOp {
         match token {
             Token::Negation => UnaryOp::Negate,
             Token::BitwiseComplment => UnaryOp::Complement,
+            Token::Exclamation => UnaryOp::Not,
             x => panic!("Unknown unary op {:?}", x)
         }
     }
@@ -93,6 +98,14 @@ impl Parsable for BinOp {
             Token::Slash => BinOp::Divide,
             Token::Asterix => BinOp::Multiply,
             Token::Percent => BinOp::Modulo,
+            Token::And => BinOp::And,
+            Token::Or => BinOp::Or,
+            Token::LTEqualTo => BinOp::LessOrEqual,
+            Token::GTEqualTo => BinOp::GreaterOrEqual,
+            Token::LessThan => BinOp::LessThan,
+            Token::GreaterThan => BinOp::GreaterThan,
+            Token::Equality => BinOp::Equal,
+            Token::NotEquality => BinOp::NotEqual,
             x => panic!("Unknown binary op {:?}", x)
         }
     }
@@ -106,6 +119,14 @@ impl BinOp {
             BinOp::Multiply => 50,
             BinOp::Divide => 50,
             BinOp::Modulo => 50,
+            BinOp::And => 10,
+            BinOp::Or => 5,
+            BinOp::Equal => 30,
+            BinOp::NotEqual => 30,
+            BinOp::LessThan => 35,
+            BinOp::LessOrEqual => 35,
+            BinOp::GreaterThan => 35,
+            BinOp::GreaterOrEqual => 35,
         }
     }
 
@@ -116,6 +137,14 @@ impl BinOp {
             Token::Asterix => 50,
             Token::Slash => 50,
             Token::Percent => 50,
+            Token::And => 10,
+            Token::Or => 5,
+            Token::Equality => 30,
+            Token::NotEquality => 30,
+            Token::LessThan => 35,
+            Token::LTEqualTo => 35,
+            Token::GreaterThan => 35,
+            Token::GTEqualTo => 35,
             _ => -1
         }
     }
@@ -126,6 +155,14 @@ impl BinOp {
         || token_is(next_token, &Token::Asterix)
         || token_is(next_token, &Token::Slash)
         || token_is(next_token, &Token::Percent)
+        || token_is(next_token, &Token::And)
+        || token_is(next_token, &Token::Or)
+        || token_is(next_token, &Token::GTEqualTo)
+        || token_is(next_token, &Token::LTEqualTo)
+        || token_is(next_token, &Token::GreaterThan)
+        || token_is(next_token, &Token::LessThan)
+        || token_is(next_token, &Token::Equality)
+        || token_is(next_token, &Token::NotEquality)
     }
 }
 

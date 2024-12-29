@@ -3,8 +3,10 @@ mod parser;
 mod tacky_gen;
 mod code_gen;
 mod code_emit;
+mod constant_evaluator;
 
 use code_gen::AProgram;
+use constant_evaluator::evaluate_constants_program;
 use tacky_gen::TProgram;
 use code_emit::CodeEmission;
 use lexer::tokenize;
@@ -26,6 +28,10 @@ fn main() {
     
     tokens.reverse();
     let program = Program::parse(&mut tokens);
+
+    println!("{:#?}\n--------", program);
+
+    let program = evaluate_constants_program(program);
 
     println!("{:#?}\n--------", program);
 
