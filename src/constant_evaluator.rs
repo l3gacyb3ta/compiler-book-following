@@ -11,48 +11,49 @@ fn is_factor_constant(fac: Factor) -> bool {
 /// If a thing is made up off all constant parts, it's constant
 pub fn is_constant(exp: Expression) -> bool {
     match exp {
-        Expression::Binary { lhs, op: _, rhs } => {
-            is_constant(*lhs) && is_constant(*rhs)
-        },
+        Expression::Binary { lhs, op: _, rhs } => is_constant(*lhs) && is_constant(*rhs),
         Expression::Factor(factor) => is_factor_constant(factor),
     }
 }
 
-/// Evaluate a factor, probably also evaluting sub-expressions. 
+/// Evaluate a factor, probably also evaluting sub-expressions.
 fn evaluate_constants_factor(fac: Factor) -> Option<i32> {
     if !is_factor_constant(fac.clone()) {
-        return None
+        return None;
     }
 
     match fac.clone() {
         Factor::Constant(x) => Some(x),
         Factor::Unary { op, fac } => match op {
             crate::parser::UnaryOp::Complement => todo!(),
-            crate::parser::UnaryOp::Negate => {
-                match evaluate_constants_factor(*fac) {
-                    Some(x) => Some(-1 * x),
-                    None => None,
-                }
+            crate::parser::UnaryOp::Negate => match evaluate_constants_factor(*fac) {
+                Some(x) => Some(-1 * x),
+                None => None,
             },
-            crate::parser::UnaryOp::Not => {
-                match evaluate_constants_factor(*fac) {
-                    Some(x) => Some(b_to_i(!i_to_b(x))),
-                    None => None,
-                }
+            crate::parser::UnaryOp::Not => match evaluate_constants_factor(*fac) {
+                Some(x) => Some(b_to_i(!i_to_b(x))),
+                None => None,
             },
-            
         },
         Factor::Expression(expression) => expression_to_number(*expression.clone()),
     }
 }
-/// Rust Boolean to integer bool from C 
+/// Rust Boolean to integer bool from C
 fn b_to_i(b: bool) -> i32 {
-    if b {1} else {0}
+    if b {
+        1
+    } else {
+        0
+    }
 }
 
 /// integer bool from C to Rust Boolean
 fn i_to_b(i: i32) -> bool {
-    if i == 1 {true} else {false}
+    if i == 1 {
+        true
+    } else {
+        false
+    }
 }
 
 /// convert an expression into it's evaluated result, or nothing if it's not constant
@@ -63,9 +64,9 @@ fn expression_to_number(exp: Expression) -> Option<i32> {
             let left = expression_to_number(*lhs);
             let right = expression_to_number(*rhs);
             if left.is_none() || right.is_none() {
-                return None
+                return None;
             }
-            
+
             let left = left.unwrap();
             let right = right.unwrap();
 
@@ -84,7 +85,7 @@ fn expression_to_number(exp: Expression) -> Option<i32> {
                 crate::parser::BinOp::GreaterThan => b_to_i(left > right),
                 crate::parser::BinOp::GreaterOrEqual => b_to_i(left >= right),
             })
-        },
+        }
     }
 }
 
@@ -93,29 +94,36 @@ fn evaluate_constants_expression(exp: Expression) -> Expression {
     match exp.clone() {
         Expression::Factor(factor) => {
             if is_factor_constant(factor.clone()) {
-                Expression::Factor(Factor::Constant(evaluate_constants_factor(factor).expect("Thought factor was constat")))
+                Expression::Factor(Factor::Constant(
+                    evaluate_constants_factor(factor).expect("Thought factor was constat"),
+                ))
             } else {
                 exp
             }
-        },
-        Expression::Binary { lhs: _, op: _, rhs: _ } => {
+        }
+        Expression::Binary {
+            lhs: _,
+            op: _,
+            rhs: _,
+        } => {
             if is_constant(exp.clone()) {
                 Expression::Factor(Factor::Constant(expression_to_number(exp).unwrap()))
             } else {
                 exp
             }
-        },
+        }
     }
 }
 
 fn evaluate_constants_statement(stat: Statement) -> Statement {
     match stat {
-        Statement::Return(expression) => Statement::Return(evaluate_constants_expression(expression)),
+        Statement::Return(expression) => {
+            Statement::Return(evaluate_constants_expression(expression))
+        }
     }
 }
 
 fn evaluate_constants_function(func: Function) -> Function {
-    
     Function {
         identifier: func.identifier,
         statement: evaluate_constants_statement(func.statement),
@@ -123,7 +131,11 @@ fn evaluate_constants_function(func: Function) -> Function {
 }
 
 pub fn evaluate_constants_program(pro: Program) -> Program {
-    let new_funcs = pro.functions.iter().map(|x| evaluate_constants_function(x.clone())).collect();
+    let new_funcs = pro
+        .functions
+        .iter()
+        .map(|x| evaluate_constants_function(x.clone()))
+        .collect();
 
     Program {
         functions: new_funcs,

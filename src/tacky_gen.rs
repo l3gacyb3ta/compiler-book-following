@@ -35,20 +35,20 @@ pub enum TInstruction {
     },
     Copy {
         src: Val,
-        dst: Val
+        dst: Val,
     },
     Jump {
-        target: Identifier
+        target: Identifier,
     },
     JumpIfZero {
         condition: Val,
-        target: Identifier
+        target: Identifier,
     },
     JumpIfNotZero {
         condition: Val,
-        target: Identifier
+        target: Identifier,
     },
-    Label(Identifier)
+    Label(Identifier),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -58,9 +58,12 @@ pub enum TBinOp {
     Multiply,
     Divide,
     Remainder,
-    Equal, NotEqual,
-    LessThan, LessOrEqual,
-    GreaterThan, GreaterOrEqual,
+    Equal,
+    NotEqual,
+    LessThan,
+    LessOrEqual,
+    GreaterThan,
+    GreaterOrEqual,
 }
 
 #[derive(Clone, Debug)]
@@ -73,14 +76,19 @@ use std::sync::atomic::AtomicUsize;
 static STACK_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 fn get_new_id(descriptor: &str) -> Identifier {
-    (STACK_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed), descriptor.to_owned())
+    (
+        STACK_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        descriptor.to_owned(),
+    )
 }
 
 static LABEL_COUNTER: AtomicUsize = AtomicUsize::new(0);
 fn get_new_label(descriptor: &str) -> Identifier {
-    (LABEL_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed), descriptor.to_owned())
+    (
+        LABEL_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        descriptor.to_owned(),
+    )
 }
-
 
 impl std::fmt::Display for Val {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -95,7 +103,7 @@ impl std::fmt::Display for Val {
 pub enum TUnaryOp {
     Complement,
     Negate,
-    Not
+    Not,
 }
 
 impl From<Program> for TProgram {
@@ -121,7 +129,7 @@ impl From<Program> for TProgram {
                 BinOp::LessOrEqual => TBinOp::LessOrEqual,
                 BinOp::GreaterThan => TBinOp::GreaterThan,
                 BinOp::GreaterOrEqual => TBinOp::GreaterOrEqual,
-                BinOp::And | BinOp::Or => unreachable!("And and or shouldn't be here.")
+                BinOp::And | BinOp::Or => unreachable!("And and or shouldn't be here."),
             }
         }
 
@@ -131,52 +139,85 @@ impl From<Program> for TProgram {
                     if op == BinOp::And {
                         let v1 = expression_to_tacky(*lhs, instructions);
                         let false_label = get_new_label("false_label");
-                        instructions.push(TInstruction::JumpIfZero { condition: v1, target: false_label.clone() });
+                        instructions.push(TInstruction::JumpIfZero {
+                            condition: v1,
+                            target: false_label.clone(),
+                        });
 
                         let v2 = expression_to_tacky(*rhs, instructions);
-                        instructions.push(TInstruction::JumpIfZero { condition: v2, target: false_label.clone() });
+                        instructions.push(TInstruction::JumpIfZero {
+                            condition: v2,
+                            target: false_label.clone(),
+                        });
 
                         let result = Val::Var(get_new_id("result"));
                         let end = get_new_label("end");
-                        instructions.push(TInstruction::Copy { src: Val::Constant(1), dst: result.clone() });
-                        instructions.push(TInstruction::Jump { target: end.clone() });
+                        instructions.push(TInstruction::Copy {
+                            src: Val::Constant(1),
+                            dst: result.clone(),
+                        });
+                        instructions.push(TInstruction::Jump {
+                            target: end.clone(),
+                        });
 
                         instructions.push(TInstruction::Label(false_label));
-                        instructions.push(TInstruction::Copy { src: Val::Constant(0), dst: result.clone() });
+                        instructions.push(TInstruction::Copy {
+                            src: Val::Constant(0),
+                            dst: result.clone(),
+                        });
                         instructions.push(TInstruction::Label(end));
 
                         return result;
                     } else if op == BinOp::Or {
                         let v1 = expression_to_tacky(*lhs, instructions);
                         let false_label = get_new_label("false_label");
-                        instructions.push(TInstruction::JumpIfNotZero { condition: v1, target: false_label.clone() });
+                        instructions.push(TInstruction::JumpIfNotZero {
+                            condition: v1,
+                            target: false_label.clone(),
+                        });
 
                         let v2 = expression_to_tacky(*rhs, instructions);
-                        instructions.push(TInstruction::JumpIfNotZero { condition: v2, target: false_label.clone() });
+                        instructions.push(TInstruction::JumpIfNotZero {
+                            condition: v2,
+                            target: false_label.clone(),
+                        });
 
                         let result = Val::Var(get_new_id("result"));
                         let end = get_new_label("end");
-                        instructions.push(TInstruction::Copy { src: Val::Constant(1), dst: result.clone() });
-                        instructions.push(TInstruction::Jump { target: end.clone() });
+                        instructions.push(TInstruction::Copy {
+                            src: Val::Constant(1),
+                            dst: result.clone(),
+                        });
+                        instructions.push(TInstruction::Jump {
+                            target: end.clone(),
+                        });
 
                         instructions.push(TInstruction::Label(false_label));
-                        instructions.push(TInstruction::Copy { src: Val::Constant(0), dst: result.clone() });
+                        instructions.push(TInstruction::Copy {
+                            src: Val::Constant(0),
+                            dst: result.clone(),
+                        });
                         instructions.push(TInstruction::Label(end));
 
                         return result;
                     }
-                    
+
                     let v1 = expression_to_tacky(*lhs, instructions);
                     let v2 = expression_to_tacky(*rhs, instructions);
 
                     let dst = Val::Var(get_new_id("result"));
-                    
+
                     let tacky_op = binop_to_tacky(op);
 
-                    instructions.push(TInstruction::Binary { binary_op: tacky_op, src1: v1, src2: v2, dst: dst.clone() });
+                    instructions.push(TInstruction::Binary {
+                        binary_op: tacky_op,
+                        src1: v1,
+                        src2: v2,
+                        dst: dst.clone(),
+                    });
 
                     dst
-                },
+                }
                 Expression::Factor(factor) => factor_to_tacky(factor, instructions),
             }
         }
@@ -198,7 +239,6 @@ impl From<Program> for TProgram {
                     dst
                 }
                 Factor::Expression(expression) => expression_to_tacky(*expression, instructions),
-                
             }
         }
 

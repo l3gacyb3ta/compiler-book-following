@@ -1,18 +1,18 @@
+mod code_emit;
+mod code_gen;
+mod constant_evaluator;
 mod lexer;
 mod parser;
 mod tacky_gen;
-mod code_gen;
-mod code_emit;
-mod constant_evaluator;
 
+use code_emit::CodeEmission;
 use code_gen::AProgram;
 use constant_evaluator::evaluate_constants_program;
-use tacky_gen::TProgram;
-use code_emit::CodeEmission;
 use lexer::tokenize;
 use parser::{Parsable, Program};
 use std::env::args;
 use std::fs;
+use tacky_gen::TProgram;
 
 fn main() {
     let args: Vec<String> = args().collect();
@@ -21,11 +21,12 @@ fn main() {
     }
 
     let filename = args[1].clone();
-    let contents = fs::read_to_string(filename.clone()).expect(&format!("No file found {}", filename));
+    let contents =
+        fs::read_to_string(filename.clone()).expect(&format!("No file found {}", filename));
 
     let mut tokens = tokenize(&contents);
     println!("{:?}\n\n", tokens);
-    
+
     tokens.reverse();
     let program = Program::parse(&mut tokens);
 

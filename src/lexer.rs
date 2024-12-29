@@ -76,17 +76,12 @@ pub fn tokenize(string: &str) -> Vec<Token> {
     let lteq = re!("^<=");
     let gteq = re!("^>=");
 
-
     let dec = re!("^--");
-
-
-
 
     let regexes: Vec<(Regex, &str)> = vec![
         (int, "int"),
         (void, "void"),
         (ret, "return"),
-
         (op, "op"),
         (cp, "cp"),
         (ob, "ob"),
@@ -95,12 +90,10 @@ pub fn tokenize(string: &str) -> Vec<Token> {
         (bitcp, "bitcp"),
         (dec, "dec"),
         (neg, "neg"),
-
         (plus, "plus"),
         (asterix, "asterix"),
         (slash, "slash"),
         (percent, "percent"),
-
         (exlm, "exlm"),
         (and, "and"),
         (or, "or"),
@@ -110,7 +103,6 @@ pub fn tokenize(string: &str) -> Vec<Token> {
         (gt, "gt"),
         (lteq, "lteq"),
         (gteq, "gteq"),
-
         (constant, "constant"),
         (ident, "ident"),
     ];
@@ -118,9 +110,8 @@ pub fn tokenize(string: &str) -> Vec<Token> {
     let mut output = vec![];
     let mut input_feed = string.to_string();
     let mut longest_length: usize;
-    let mut longest_name: &str ;
-    let mut value ;
-
+    let mut longest_name: &str;
+    let mut value;
 
     while input_feed.len() != 0 {
         input_feed = input_feed.trim().to_string();
@@ -182,19 +173,22 @@ pub fn tokenize(string: &str) -> Vec<Token> {
                 match value {
                     "return" => Token::Return,
                     "int" => Token::Int,
-                    value => Token::Identifier(value.into())
+                    value => Token::Identifier(value.into()),
                 }
-            },
+            }
             "constant" => {
-                let constant = value.to_string().parse::<i32>().expect("unable to convert string to number");
+                let constant = value
+                    .to_string()
+                    .parse::<i32>()
+                    .expect("unable to convert string to number");
                 Token::Constant(constant)
-            },
+            }
 
             "dec" => unimplemented!("Decrement"),
-            x => panic!("unknown longest name {}", x)
+            x => panic!("unknown longest name {}", x),
         };
 
-        input_feed = input_feed.replacen(value,"", 1);
+        input_feed = input_feed.replacen(value, "", 1);
 
         output.push(token.clone());
     }
