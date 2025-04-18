@@ -12,12 +12,26 @@ pub struct Program {
 #[derive(Debug, Clone)]
 pub struct Function {
     pub identifier: String,
-    pub statement: Statement,
+    pub body: Vec<BlockItem>,
+}
+
+#[derive(Debug, Clone)]
+pub enum BlockItem {
+    Statement(Statement),
+    Declaration(Declaration)
+}
+
+#[derive(Debug, Clone)]
+pub struct Declaration {
+    pub identifier: String,
+    pub init: Option<Box<Expression>>,
 }
 
 #[derive(Debug, Clone)]
 pub enum Statement {
     Return(Expression),
+    Expression(Expression),
+    Null
 }
 
 #[derive(Debug, Clone)]
@@ -28,6 +42,7 @@ pub enum Expression {
         op: BinOp,
         rhs: Box<Expression>,
     },
+    Assignment {lhs: Box<Expression>, rhs: Box<Expression>}
 }
 
 #[derive(Debug, Clone)]
@@ -35,6 +50,7 @@ pub enum Factor {
     Constant(i32),
     Unary { op: UnaryOp, fac: Box<Factor> },
     Expression(Box<Expression>),
+    Var {ident: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -154,6 +170,7 @@ impl BinOp {
             Token::LTEqualTo => 35,
             Token::GreaterThan => 35,
             Token::GTEqualTo => 35,
+            Token::Assignment => 1,
             _ => -1,
         }
     }
@@ -181,7 +198,15 @@ impl Parsable for Expression {
             let mut lhs = Expression::Factor(Factor::parse(tokens));
             let mut next_token = peek(tokens);
 
-            while BinOp::is_bin_op(&next_token) && BinOp::token_precedance(next_token) >= min_prec {
+            while BinOp::is_bin_op(&next_token) && BinOp::token_precedance(next_token.clone()) >= min_prec {
+                if token_is(&next_token, &Token::Assignment) {
+                    expect(tokens, Token::Assignment);
+
+                    let right: Expression = Expression::parse(tokens);
+                    let left: Expression = Expression::Assignment { lhs: Box::new(lhs.clone()), rhs: Box::new(right) };
+                    lhs = left;
+                }
+
                 let operator = BinOp::parse(tokens);
                 let rhs = parse_precedance(tokens, operator.precedance() + 1);
                 lhs = Expression::Binary {
@@ -229,6 +254,14 @@ impl Parsable for Factor {
             expect(tokens, Token::CloseParen);
 
             Factor::Expression(Box::new(inner))
+        } else if token_is(&next_token, &Token::Identifier("".to_owned())) {
+            let identifier = expect(tokens, Token::Identifier("".to_owned()));
+            let identifier = match identifier {
+                Token::Identifier(x) => x,
+                _ => unreachable!(),
+            };
+
+            Factor::Var { ident: identifier }
         } else {
             panic!("Malformed Expression")
         }
@@ -245,11 +278,54 @@ impl Parsable for Statement {
     }
 }
 
+impl Parsable for Declaration {
+    fn parse(tokens: &mut Vec<Token>) -> Self {
+        expect(tokens, Token::Int);
+
+        let identifier = expect(tokens, Token::Identifier("".to_owned()));
+        let identifier = match identifier {
+            Token::Identifier(x) => x,
+            _ => unreachable!(),
+        };
+
+        
+        let init = if token_is(&peek(tokens), &Token::Assignment) {
+            expect(tokens, Token::Assignment);
+            let exp = Expression::parse(tokens);
+            
+            Option::Some(Box::new(exp))
+        } else {
+            Option::None
+        };
+        
+        expect(tokens, Token::Semicolon);
+        
+        Self {
+            identifier,
+            init,
+        }
+
+    }
+}
+
+impl Parsable for BlockItem {
+    fn parse(tokens: &mut Vec<Token>) -> Self {
+        match peek(tokens) {
+            Token::Int => {
+                Self::Declaration(Declaration::parse(tokens))
+            },
+            _ => {
+                return Self::Statement(Statement::parse(tokens))
+            }
+        }
+    }
+}
+
 impl Parsable for Function {
     fn parse(tokens: &mut Vec<Token>) -> Self {
         expect(tokens, Token::Int);
-        let ident = expect(tokens, Token::Identifier("".to_owned()));
-        let ident = match ident {
+        let identifier = expect(tokens, Token::Identifier("".to_owned()));
+        let identifier = match identifier {
             Token::Identifier(x) => x,
             _ => unreachable!(),
         };
@@ -257,12 +333,19 @@ impl Parsable for Function {
         expect(tokens, Token::OpenParen);
         expect(tokens, Token::CloseParen);
         expect(tokens, Token::OpenBrace);
-        let statement = Statement::parse(tokens);
+
+        let mut body = vec![];
+
+        while !token_is(&peek(tokens), &Token::CloseBrace) {
+            let block = BlockItem::parse(tokens);
+            body.push(block);
+        }
+
         expect(tokens, Token::CloseBrace);
 
         return Function {
-            identifier: ident,
-            statement,
+            identifier,
+            body,
         };
     }
 }

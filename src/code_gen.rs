@@ -56,11 +56,11 @@ pub enum CondCode {
     LE,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub enum Operand {
     Imm(i32),
     Register(Reg),
-    Pseudo(usize),
+    Pseudo(String),
     Stack(i32),
 }
 
@@ -85,11 +85,14 @@ pub enum ABinOp {
     Mult,
 }
 
+use std::{collections::HashMap, sync::atomic::AtomicUsize};
+static PSEUDO_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
 impl From<Val> for Operand {
     fn from(val: Val) -> Self {
         match val {
             Val::Constant(x) => Operand::Imm(x),
-            Val::Var(i) => Operand::Pseudo(i.0),
+            Val::Var(i) => Operand::Pseudo(i),
         }
     }
 }
@@ -275,48 +278,64 @@ impl From<TProgram> for AProgram {
             let mut offset_map: Vec<i32> = vec![];
             let mut offset = -4;
 
-            fn fix_operand(op: Operand, offset_map: &mut Vec<i32>, offset: &mut i32) -> Operand {
+            let mut identifier_hashmap: HashMap<String, usize> = HashMap::new();
+            let mut identifier_counter = 0;
+
+            fn fix_operand_b4(op: Operand, offset_map: &mut Vec<i32>, offset: &mut i32, ident_map: &mut HashMap<String, usize>, counter: &mut usize) -> Operand {
                 // The operand's unique, sequential ID is used to not have to use a hashmap and instead use a list
+                // ugh fuck me why'd I do this
                 match op {
                     Operand::Pseudo(i) => {
+                        let i = if ident_map.contains_key(&i) {
+                            *ident_map.get(&i).unwrap()
+                        } else {
+                            *counter += 1;
+                            ident_map.insert(i, *counter);
+
+                            *counter
+                        };
+
+
                         if i + 1 > offset_map.len() {
                             offset_map.push(*offset);
                             *offset -= 4;
                         }
 
-                        Operand::Stack(offset_map[i])
+                        Operand::Stack(offset_map[i - 1])
                     }
                     x => x,
                 }
             }
+
+            let fix_operand = partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter);
 
             (
                 instructions
                     .iter()
                     .map(|inst| match inst.clone() {
                         Instruction::Mov { src, dst } => Instruction::Mov {
-                            src: fix_operand(src, &mut offset_map, &mut offset),
-                            dst: fix_operand(dst, &mut offset_map, &mut offset),
+                            src: partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter)(src, &mut offset_map, &mut offset),
+                            dst: partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter)(dst, &mut offset_map, &mut offset),
                         },
                         Instruction::Unary { op, operand } => Instruction::Unary {
                             op: op,
-                            operand: fix_operand(operand, &mut offset_map, &mut offset),
+                            operand: partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter)(operand, &mut offset_map, &mut offset),
                         },
                         Instruction::Binary { op, src, dst } => Instruction::Binary {
                             op: op,
-                            src: fix_operand(src, &mut offset_map, &mut offset),
-                            dst: fix_operand(dst, &mut offset_map, &mut offset),
+                            src: partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter)(src, &mut offset_map, &mut offset),
+                            dst: partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter)(dst, &mut offset_map, &mut offset),
                         },
                         Instruction::Idiv(op) => {
-                            Instruction::Idiv(fix_operand(op, &mut offset_map, &mut offset))
+                            Instruction::Idiv(partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter)(op, &mut offset_map, &mut offset))
                         }
                         Instruction::SetCC { cc, src } => Instruction::SetCC {
                             cc,
-                            src: fix_operand(src, &mut offset_map, &mut offset),
+                            src: partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter)(src, &mut offset_map, &mut offset),
                         },
                         Instruction::Cmp { src1, src2 } => Instruction::Cmp {
-                            src1: fix_operand(src1, &mut offset_map, &mut offset),
-                            src2: fix_operand(src2, &mut offset_map, &mut offset),
+                            src1: partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter)(src1, &mut offset_map, &mut offset),
+                            src2: partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter)(src2, &mut offset_map, &mut offset),
                         },
                         x => x,
                     })
@@ -398,11 +417,11 @@ impl From<TProgram> for AProgram {
                         }
                     }
                     ABinOp::Mult => {
-                        if std::mem::discriminant(&dst)
+                        if std::mem::discriminant(&dst.clone())
                             == std::mem::discriminant(&Operand::Stack(0))
                         {
                             output.push(Instruction::Mov {
-                                src: dst,
+                                src: dst.clone(),
                                 dst: Reg::R11.into(),
                             });
                             output.push(Instruction::Binary {

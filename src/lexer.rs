@@ -19,6 +19,7 @@ pub enum Token {
     Negation,
     BitwiseComplment,
     Decrement,
+    Assignment,
 
     Exclamation,
     And,
@@ -65,6 +66,7 @@ pub fn tokenize(string: &str) -> Vec<Token> {
     let asterix = re!(r"^\*");
     let slash = re!("^/");
     let percent = re!("^%");
+    let ass = re!("^=");
 
     let exlm = re!("^!");
     let and = re!("^&&");
@@ -75,7 +77,7 @@ pub fn tokenize(string: &str) -> Vec<Token> {
     let gt = re!("^>");
     let lteq = re!("^<=");
     let gteq = re!("^>=");
-
+    
     let dec = re!("^--");
 
     let regexes: Vec<(Regex, &str)> = vec![
@@ -94,6 +96,7 @@ pub fn tokenize(string: &str) -> Vec<Token> {
         (asterix, "asterix"),
         (slash, "slash"),
         (percent, "percent"),
+        (ass, "ass"),
         (exlm, "exlm"),
         (and, "and"),
         (or, "or"),
@@ -157,6 +160,7 @@ pub fn tokenize(string: &str) -> Vec<Token> {
             "asterix" => Token::Asterix,
             "slash" => Token::Slash,
             "percent" => Token::Percent,
+            "ass" => Token::Assignment,
 
             "exlm" => Token::Exclamation,
             "and" => Token::And,

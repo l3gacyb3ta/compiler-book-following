@@ -38,7 +38,9 @@ fn evaluate_constants_factor(fac: Factor) -> Option<i32> {
         Factor::Expression(expression) => expression_to_number(*expression.clone()),
     }
 }
+
 /// Rust Boolean to integer bool from C
+#[inline]
 fn b_to_i(b: bool) -> i32 {
     if b {
         1
@@ -48,6 +50,7 @@ fn b_to_i(b: bool) -> i32 {
 }
 
 /// integer bool from C to Rust Boolean
+#[inline]
 fn i_to_b(i: i32) -> bool {
     if i == 1 {
         true
@@ -90,6 +93,7 @@ fn expression_to_number(exp: Expression) -> Option<i32> {
 }
 
 /// Transform an expression if it's constant
+#[inline]
 fn evaluate_constants_expression(exp: Expression) -> Expression {
     match exp.clone() {
         Expression::Factor(factor) => {
@@ -115,6 +119,7 @@ fn evaluate_constants_expression(exp: Expression) -> Expression {
     }
 }
 
+#[inline]
 fn evaluate_constants_statement(stat: Statement) -> Statement {
     match stat {
         Statement::Return(expression) => {
@@ -123,6 +128,7 @@ fn evaluate_constants_statement(stat: Statement) -> Statement {
     }
 }
 
+#[inline]
 fn evaluate_constants_function(func: Function) -> Function {
     Function {
         identifier: func.identifier,

@@ -1,4 +1,4 @@
-use crate::parser::{BinOp, Expression, Factor, Function, Program, Statement, UnaryOp};
+use crate::parser::{BinOp, BlockItem, Declaration, Expression, Factor, Function, Program, Statement, UnaryOp};
 
 #[derive(Clone, Debug)]
 pub struct TProgram {
@@ -11,7 +11,7 @@ pub struct TFunction {
     pub instructions: Vec<TInstruction>,
 }
 
-pub type Identifier = (usize, String);
+pub type Identifier = String;
 
 // impl std::fmt::Debug for Identifier {
 //     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -72,29 +72,27 @@ pub enum Val {
     Var(Identifier),
 }
 
-use std::sync::atomic::AtomicUsize;
+use std::{fmt::format, sync::atomic::AtomicUsize};
 static STACK_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 fn get_new_id(descriptor: &str) -> Identifier {
-    (
-        STACK_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-        descriptor.to_owned(),
-    )
+    let count = STACK_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+    format!("{}.{}", descriptor, count)
 }
 
 static LABEL_COUNTER: AtomicUsize = AtomicUsize::new(0);
 fn get_new_label(descriptor: &str) -> Identifier {
-    (
-        LABEL_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-        descriptor.to_owned(),
-    )
+    let count = LABEL_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+    format!("{}.{}", descriptor, count)
 }
 
 impl std::fmt::Display for Val {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Val::Constant(x) => write!(f, "{}", x),
-            Val::Var(x) => write!(f, "tmp.{}.{}", x.1, x.0),
+            Val::Var(x) => write!(f, "{}", x),
         }
     }
 }
@@ -219,6 +217,23 @@ impl From<Program> for TProgram {
                     dst
                 }
                 Expression::Factor(factor) => factor_to_tacky(factor, instructions),
+                Expression::Assignment { lhs, rhs } => {
+                    let lhs = match *lhs {
+                        Expression::Factor(f) => match f {
+                            Factor::Var { ident } => Val::Var(ident),
+                            _ => unreachable!(),
+                        },
+                        _ => unreachable!(),
+                    };
+
+                    let result = expression_to_tacky(*rhs, instructions);
+                    instructions.push(TInstruction::Copy {
+                        src: result,
+                        dst: lhs.clone(),
+                    });
+
+                    lhs
+                }
             }
         }
 
@@ -239,6 +254,7 @@ impl From<Program> for TProgram {
                     dst
                 }
                 Factor::Expression(expression) => expression_to_tacky(*expression, instructions),
+                Factor::Var { ident } => Val::Var(ident),
             }
         }
 
@@ -248,16 +264,52 @@ impl From<Program> for TProgram {
                 Statement::Return(expression) => {
                     let val = expression_to_tacky(expression, &mut instructions);
                     instructions.push(TInstruction::Return(val));
-                }
+                },
+                Statement::Expression(expression) => {
+                    expression_to_tacky(expression, &mut instructions);
+                },
+                Statement::Null => todo!(),
             }
 
             instructions
         }
 
+        fn block_item_to_instructions(block_item: BlockItem, instructions: &mut Vec<TInstruction>) {
+            match block_item {
+                BlockItem::Statement(statement) => {
+                    let mut instr = statement_to_instructions(statement);
+                    instructions.append(&mut instr);
+                }
+                BlockItem::Declaration(Declaration { identifier: variable, init}) => {
+                    match init {
+                        Some(exp) => {
+                            let result = expression_to_tacky(*exp, instructions);
+                            instructions.push(
+                                TInstruction::Copy { src: result, dst: Val::Var(variable) }
+                            );
+                        },
+                        None => todo!(),
+                    };
+
+                },
+            }
+        }
+
         fn function_to_afunction(func: Function) -> TFunction {
+            let mut instructions = vec![];
+
+            for block_item in func.body.iter() {
+                block_item_to_instructions(block_item.clone(), &mut instructions);
+            }
+            
+            //hack to support functions with no returns, if it already has a return, this'll be ignored
+            instructions.push(
+                TInstruction::Return(Val::Constant(0))
+            );
+
             TFunction {
                 identifier: func.identifier,
-                instructions: statement_to_instructions(func.statement),
+                instructions
             }
         }
 

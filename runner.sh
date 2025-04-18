@@ -14,4 +14,4 @@ $PREFIX-gcc --sysroot=/usr/x86_64-redhat-linux/sys-root/fc41/ out.s -o $1.compil
 
 echo "CLEANUP"
 
-rm $1.i
+# rm $1.i

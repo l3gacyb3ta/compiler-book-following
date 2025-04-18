@@ -1,18 +1,22 @@
 mod code_emit;
 mod code_gen;
-mod constant_evaluator;
+// mod constant_evaluator;
 mod lexer;
 mod parser;
+mod semantic_analysis;
 mod tacky_gen;
 
 use code_emit::CodeEmission;
 use code_gen::AProgram;
-use constant_evaluator::evaluate_constants_program;
+// use constant_evaluator::evaluate_constants_program;
 use lexer::tokenize;
 use parser::{Parsable, Program};
 use std::env::args;
 use std::fs;
 use tacky_gen::TProgram;
+
+#[macro_use]
+extern crate partial_application;
 
 fn main() {
     let args: Vec<String> = args().collect();
@@ -32,11 +36,16 @@ fn main() {
 
     println!("{:#?}\n--------", program);
 
-    let program = evaluate_constants_program(program);
+    let program_analyzed = semantic_analysis::semantically_analyze(program);
 
-    println!("{:#?}\n--------", program);
+    println!("{:#?}\n--------", program_analyzed);
 
-    let tacky: TProgram = program.into();
+
+    // let program = evaluate_constants_program(program);
+
+    // println!("{:#?}\n--------", program);
+
+    let tacky: TProgram = program_analyzed.into();
 
     println!("{:#?}\n--------", tacky);
 

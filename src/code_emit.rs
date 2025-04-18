@@ -86,8 +86,9 @@ impl CodeEmission for CondCode {
     }
 }
 
+#[inline]
 fn ident_to_string(ident: Identifier) -> String {
-    format!("tmp.{}.{}", ident.1, ident.0)
+    ident
 }
 
 impl CodeEmission for Instruction {
@@ -136,6 +137,7 @@ impl CodeEmission for AFunction {
 }
 
 impl CodeEmission for AProgram {
+    #[inline]
     fn emit(&self) -> String {
         format!(
             ".globl main
