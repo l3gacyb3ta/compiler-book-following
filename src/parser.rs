@@ -1,3 +1,5 @@
+use std::process::exit;
+
 use crate::lexer::Token;
 
 pub trait Parsable {
@@ -31,6 +33,7 @@ pub struct Declaration {
 pub enum Statement {
     Return(Expression),
     Expression(Expression),
+    If { cond: Expression, then: Box<Statement>, else_s: Option<Box<Statement>> },
     Null
 }
 
@@ -43,7 +46,9 @@ pub enum Expression {
         rhs: Box<Expression>,
     },
     Assignment {lhs: Box<Expression>, rhs: Box<Expression>},
-    AssignmentOp {lhs: Box<Expression>, rhs: Box<Expression>, op: BinOp}
+    AssignmentOp {lhs: Box<Expression>, rhs: Box<Expression>, op: BinOp},
+
+    Conditional { condition: Box<Expression>, true_e: Box<Expression>, false_e: Box<Expression> }
 }
 
 #[derive(Debug, Clone)]
@@ -171,6 +176,9 @@ impl BinOp {
             Token::LTEqualTo => 35,
             Token::GreaterThan => 35,
             Token::GTEqualTo => 35,
+
+            Token::QuestionMark => 3,
+
             Token::Assignment => 1,
 
             Token::AssignmentAddition |
@@ -204,6 +212,8 @@ impl BinOp {
             || token_is(next_token, &Token::AssignmentModulo)
 
             || token_is(next_token, &Token::Assignment)
+            || token_is(next_token, &Token::QuestionMark)
+
     }
 }
 
@@ -220,6 +230,20 @@ impl Parsable for Expression {
                     let right: Expression = Expression::parse(tokens);
                     let left: Expression = Expression::Assignment { lhs: Box::new(lhs.clone()), rhs: Box::new(right) };
                     lhs = left;
+                } else if token_is(&next_token, &Token::QuestionMark) {
+                    fn parse_conditional_middle(tokens: &mut Vec<Token>) -> Expression {
+                        expect(tokens, Token::QuestionMark);
+                        let expression = Expression::parse(tokens);
+                        expect(tokens, Token::Colon);
+
+                        return expression;
+                    }
+
+
+                    let middle = parse_conditional_middle(tokens);
+                    let right = parse_precedance(tokens, BinOp::token_precedance(next_token));
+                    lhs = Expression::Conditional { condition: Box::new(lhs), true_e: Box::new(middle), false_e: Box::new(right) }
+
                 } else if next_token.is_compound_assignment().is_some() {
                     // expect(tokens, Token::AssignmentAddition);
                     let op = tokens.pop().unwrap().is_compound_assignment().unwrap();
@@ -303,14 +327,47 @@ impl Parsable for Factor {
 
 impl Parsable for Statement {
     fn parse(tokens: &mut Vec<Token>) -> Self {
-        let token = peek(tokens);
+        let next_token = peek(tokens);
 
-        if token_is(&token, &Token::Identifier("".into())) {
+        if token_is(&next_token, &Token::Identifier("".into())) {
             let statement = Statement::Expression(Expression::parse(tokens));
             println!("S {:?}", statement);
             expect(tokens, Token::Semicolon);
 
             return statement
+        } else if token_is(&next_token, &Token::If) {
+            expect(tokens, Token::If);
+
+            let cond = Expression::parse(tokens);
+
+            let braced = if token_is(&peek(tokens), &Token::OpenBrace) {
+                expect(tokens, Token::OpenBrace);
+                true
+            } else { false };
+
+            let then = Box::new(Statement::parse(tokens));
+
+            if braced {expect(tokens, Token::CloseBrace);};
+
+            let else_s = if token_is(&peek(tokens), &Token::Else) {
+                expect(tokens, Token::Else);
+
+                let braced = if token_is(&peek(tokens), &Token::OpenBrace) {
+                    expect(tokens, Token::OpenBrace);
+                    true
+                } else { false };
+                let value = Some(Box::new(Statement::parse(tokens)));
+                if braced {expect(tokens, Token::CloseBrace);};
+
+                value
+            } else { None };
+
+            return Statement::If {
+                cond,
+                then,
+                else_s,
+            }
+
         }
 
         expect(tokens, Token::Return);

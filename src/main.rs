@@ -1,5 +1,5 @@
-mod code_emit;
-mod code_gen;
+// mod code_emit;
+// mod code_gen;
 // mod constant_evaluator;
 mod lexer;
 mod parser;
@@ -10,7 +10,7 @@ mod parser;
 // use code_gen::AProgram;
 // use constant_evaluator::evaluate_constants_program;
 use lexer::tokenize;
-// use parser::{Parsable, Program};
+use parser::{Parsable, Program};
 // use tacky_gen::TProgram;
 use std::env::args;
 use std::fs;
@@ -31,10 +31,10 @@ fn main() {
     let mut tokens = tokenize(&contents);
     println!("{:?}\n\n", tokens);
 
-    // tokens.reverse();
-    // let program = Program::parse(&mut tokens);
+    tokens.reverse();
+    let program = Program::parse(&mut tokens);
 
-    // println!("{:#?}\n--------", program);
+    println!("{:#?}\n--------", program);
 
     // let program_analyzed = semantic_analysis::semantically_analyze(program);
 

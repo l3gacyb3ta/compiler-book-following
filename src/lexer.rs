@@ -225,6 +225,11 @@ pub fn tokenize(string: &str) -> Vec<Token> {
             "gteq" => Token::GTEqualTo,
             "lteq" => Token::LTEqualTo,
 
+            "if" => Token::If,
+            "else" => Token::Else,
+            "colon" => Token::Colon,
+            "question" => Token::QuestionMark,
+
             "ident" => {
                 //TODO: less hacky way of this
                 match value {

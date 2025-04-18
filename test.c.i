@@ -1,5 +1,4 @@
 int main() {
     int a = 3;
-    a *= 3;
-    return a + 4;
+    return a == 3 ? 30 : 20;
 }
