@@ -233,7 +233,34 @@ impl From<Program> for TProgram {
                     });
 
                     lhs
+                },
+                Expression::AssignmentOp { lhs, rhs, op } => {
+                    let lhs = match *lhs {
+                        Expression::Factor(f) => match f {
+                            Factor::Var { ident } => Val::Var(ident),
+                            _ => unreachable!(),
+                        },
+                        _ => unreachable!(),
+                    };
+                    
+                    let old = Val::Var(get_new_id("previous_value"));
+                    instructions.push(TInstruction::Copy { src: lhs.clone(), dst: old.clone() });
+                    
+                    let rhs = expression_to_tacky(*rhs, instructions);
+                    let result = Val::Var(get_new_id("result"));
+
+                    instructions.push(
+                        TInstruction::Binary { binary_op: binop_to_tacky(op), src1: rhs, src2: old, dst: result.clone() }
+                    );
+
+                    instructions.push(TInstruction::Copy {
+                        src: result,
+                        dst: lhs.clone(),
+                    });
+
+                    lhs
                 }
+
             }
         }
 

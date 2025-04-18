@@ -307,8 +307,6 @@ impl From<TProgram> for AProgram {
                 }
             }
 
-            let fix_operand = partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter);
-
             (
                 instructions
                     .iter()

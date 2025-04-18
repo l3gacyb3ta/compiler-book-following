@@ -3,17 +3,17 @@ mod code_gen;
 // mod constant_evaluator;
 mod lexer;
 mod parser;
-mod semantic_analysis;
-mod tacky_gen;
+// mod semantic_analysis;
+// mod tacky_gen;
 
-use code_emit::CodeEmission;
-use code_gen::AProgram;
+// use code_emit::CodeEmission;
+// use code_gen::AProgram;
 // use constant_evaluator::evaluate_constants_program;
 use lexer::tokenize;
-use parser::{Parsable, Program};
+// use parser::{Parsable, Program};
+// use tacky_gen::TProgram;
 use std::env::args;
 use std::fs;
-use tacky_gen::TProgram;
 
 #[macro_use]
 extern crate partial_application;
@@ -31,29 +31,29 @@ fn main() {
     let mut tokens = tokenize(&contents);
     println!("{:?}\n\n", tokens);
 
-    tokens.reverse();
-    let program = Program::parse(&mut tokens);
+    // tokens.reverse();
+    // let program = Program::parse(&mut tokens);
 
-    println!("{:#?}\n--------", program);
+    // println!("{:#?}\n--------", program);
 
-    let program_analyzed = semantic_analysis::semantically_analyze(program);
+    // let program_analyzed = semantic_analysis::semantically_analyze(program);
 
-    println!("{:#?}\n--------", program_analyzed);
+    // println!("{:#?}\n--------", program_analyzed);
 
 
     // let program = evaluate_constants_program(program);
 
     // println!("{:#?}\n--------", program);
 
-    let tacky: TProgram = program_analyzed.into();
+    // let tacky: TProgram = program_analyzed.into();
 
-    println!("{:#?}\n--------", tacky);
+    // println!("{:#?}\n--------", tacky);
 
-    let assembly_dsl: AProgram = tacky.into();
+    // let assembly_dsl: AProgram = tacky.into();
 
-    println!("{:#?}", assembly_dsl);
+    // println!("{:#?}", assembly_dsl);
 
-    let assembly = assembly_dsl.emit();
+    // let assembly = assembly_dsl.emit();
 
-    fs::write("./out.s", assembly).unwrap();
+    // fs::write("./out.s", assembly).unwrap();
 }

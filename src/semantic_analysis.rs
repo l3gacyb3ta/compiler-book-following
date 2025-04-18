@@ -3,7 +3,6 @@ use partial_application::partial;
 use crate::parser::{BlockItem, Declaration, Expression, Factor, Function, Program, Statement};
 use std::{collections::HashMap, error::Error};
 
-
 use std::sync::atomic::AtomicUsize;
 static UNIQUE_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
@@ -45,19 +44,32 @@ pub fn resolve_exp(
             factor,
             variable_map,
         )?))),
-
         Expression::Binary { lhs, op, rhs } => Ok(Box::new(Expression::Binary {
             lhs: resolve_exp(lhs, variable_map)?,
             op: op,
             rhs: resolve_exp(rhs, variable_map)?,
         })),
-
         Expression::Assignment { lhs, rhs } => {
             if let Expression::Factor(f) = *lhs.clone() {
                 if let Factor::Var { .. } = f {
                     Ok(Box::new(Expression::Assignment {
                         lhs: resolve_exp(lhs, variable_map)?,
                         rhs: resolve_exp(rhs, variable_map)?,
+                    }))
+                } else {
+                    Err("Invalid l-value".into())
+                }
+            } else {
+                Err("Invalid l-value".into())
+            }
+        }
+        Expression::AssignmentOp { lhs, rhs, op } => {
+            if let Expression::Factor(f) = *lhs.clone() {
+                if let Factor::Var { .. } = f {
+                    Ok(Box::new(Expression::AssignmentOp {
+                        lhs: resolve_exp(lhs, variable_map)?,
+                        rhs: resolve_exp(rhs, variable_map)?,
+                        op,
                     }))
                 } else {
                     Err("Invalid l-value".into())

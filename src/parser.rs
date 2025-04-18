@@ -42,7 +42,8 @@ pub enum Expression {
         op: BinOp,
         rhs: Box<Expression>,
     },
-    Assignment {lhs: Box<Expression>, rhs: Box<Expression>}
+    Assignment {lhs: Box<Expression>, rhs: Box<Expression>},
+    AssignmentOp {lhs: Box<Expression>, rhs: Box<Expression>, op: BinOp}
 }
 
 #[derive(Debug, Clone)]
@@ -171,6 +172,12 @@ impl BinOp {
             Token::GreaterThan => 35,
             Token::GTEqualTo => 35,
             Token::Assignment => 1,
+
+            Token::AssignmentAddition |
+            Token::AssignmentSubtraction |
+            Token::AssignmentMultiplication |
+            Token::AssignmentModulo |
+            Token::AssignmentDivision => 1,
             _ => -1,
         }
     }
@@ -189,6 +196,14 @@ impl BinOp {
             || token_is(next_token, &Token::LessThan)
             || token_is(next_token, &Token::Equality)
             || token_is(next_token, &Token::NotEquality)
+
+            || token_is(next_token, &Token::AssignmentAddition)
+            || token_is(next_token, &Token::AssignmentMultiplication)
+            || token_is(next_token, &Token::AssignmentDivision)
+            || token_is(next_token, &Token::AssignmentSubtraction)
+            || token_is(next_token, &Token::AssignmentModulo)
+
+            || token_is(next_token, &Token::Assignment)
     }
 }
 
@@ -205,6 +220,17 @@ impl Parsable for Expression {
                     let right: Expression = Expression::parse(tokens);
                     let left: Expression = Expression::Assignment { lhs: Box::new(lhs.clone()), rhs: Box::new(right) };
                     lhs = left;
+                } else if next_token.is_compound_assignment().is_some() {
+                    // expect(tokens, Token::AssignmentAddition);
+                    let op = tokens.pop().unwrap().is_compound_assignment().unwrap();
+
+                    let right: Expression = Expression::parse(tokens);
+                    let left: Expression = Expression::AssignmentOp { lhs: Box::new(lhs.clone()), rhs: Box::new(right), op };
+                    lhs = left
+                }
+
+                if !BinOp::is_bin_op(&peek(tokens) ) {
+                    return lhs
                 }
 
                 let operator = BinOp::parse(tokens);
@@ -256,20 +282,37 @@ impl Parsable for Factor {
             Factor::Expression(Box::new(inner))
         } else if token_is(&next_token, &Token::Identifier("".to_owned())) {
             let identifier = expect(tokens, Token::Identifier("".to_owned()));
+
+            println!("{:?} -", next_token);
+            let next_token = peek(tokens);
+            println!("{:?} ;", next_token);
+
             let identifier = match identifier {
                 Token::Identifier(x) => x,
                 _ => unreachable!(),
             };
 
             Factor::Var { ident: identifier }
+        } else if token_is(&next_token, &Token::Assignment) {
+            panic!("uhhh")
         } else {
-            panic!("Malformed Expression")
+            panic!("Malformed Expression with {:?}", next_token)
         }
     }
 }
 
 impl Parsable for Statement {
     fn parse(tokens: &mut Vec<Token>) -> Self {
+        let token = peek(tokens);
+
+        if token_is(&token, &Token::Identifier("".into())) {
+            let statement = Statement::Expression(Expression::parse(tokens));
+            println!("S {:?}", statement);
+            expect(tokens, Token::Semicolon);
+
+            return statement
+        }
+
         expect(tokens, Token::Return);
         let expression = Expression::parse(tokens);
         expect(tokens, Token::Semicolon);
@@ -314,6 +357,9 @@ impl Parsable for BlockItem {
             Token::Int => {
                 Self::Declaration(Declaration::parse(tokens))
             },
+            // Token::Identifier(ident) => {
+            //     Self::Statement(())
+            // },
             _ => {
                 return Self::Statement(Statement::parse(tokens))
             }

@@ -1,4 +1,5 @@
 use regex::Regex;
+use crate::parser::BinOp;
 
 macro_rules! re {
     ($s:expr) => {
@@ -21,6 +22,12 @@ pub enum Token {
     Decrement,
     Assignment,
 
+    AssignmentAddition,
+    AssignmentSubtraction,
+    AssignmentMultiplication,
+    AssignmentDivision,
+    AssignmentModulo,
+
     Exclamation,
     And,
     Or,
@@ -39,6 +46,25 @@ pub enum Token {
     Int,
     Void,
     Return,
+
+    If,
+    Else,
+    QuestionMark,
+    Colon
+}
+
+impl Token {
+    pub fn is_compound_assignment(&self) -> Option<BinOp> {
+        match self {
+            Self::AssignmentAddition => Some(BinOp::Add),
+            Self::AssignmentSubtraction => Some(BinOp::Subtract),
+            Self::AssignmentDivision => Some(BinOp::Divide),
+            Self::AssignmentMultiplication => Some(BinOp::Multiply),
+            Self::AssignmentModulo => Some(BinOp::Modulo),
+            
+            _ => None
+        }
+    }
 }
 
 /// While Input isn't Empty:
@@ -77,7 +103,18 @@ pub fn tokenize(string: &str) -> Vec<Token> {
     let gt = re!("^>");
     let lteq = re!("^<=");
     let gteq = re!("^>=");
-    
+
+    let asspls = re!(r"^\+=");
+    let assmul = re!(r"^\*=");
+    let asssub = re!(r"^-=");
+    let assdiv = re!(r"^/=");
+    let assmod = re!(r"^%=");
+
+    let if_t = re!("^if");
+    let else_t = re!("^else");
+    let question = re!(r"^\?");
+    let colon = re!("^:");
+
     let dec = re!("^--");
 
     let regexes: Vec<(Regex, &str)> = vec![
@@ -97,6 +134,17 @@ pub fn tokenize(string: &str) -> Vec<Token> {
         (slash, "slash"),
         (percent, "percent"),
         (ass, "ass"),
+        (asspls, "asspls"),
+        (asssub, "asssub"),
+        (assmul, "assmul"),
+        (assdiv, "assdiv"),
+        (assmod, "assmod"),
+
+        (if_t, "if"),
+        (else_t, "else"),
+        (question, "question"),
+        (colon, "colon"),
+
         (exlm, "exlm"),
         (and, "and"),
         (or, "or"),
@@ -161,6 +209,11 @@ pub fn tokenize(string: &str) -> Vec<Token> {
             "slash" => Token::Slash,
             "percent" => Token::Percent,
             "ass" => Token::Assignment,
+
+            "asspls" => Token::AssignmentAddition,
+            "asssub" => Token::AssignmentSubtraction,
+            "assmul" => Token::AssignmentMultiplication,
+            "assdiv" => Token::AssignmentDivision,
 
             "exlm" => Token::Exclamation,
             "and" => Token::And,
