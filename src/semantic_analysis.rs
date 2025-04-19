@@ -78,6 +78,15 @@ pub fn resolve_exp(
                 Err("Invalid l-value".into())
             }
         }
+        Expression::Conditional {
+            condition,
+            true_e,
+            false_e,
+        } => Ok(Box::new(Expression::Conditional {
+            condition: resolve_exp(condition, variable_map)?,
+            true_e: resolve_exp(true_e, variable_map)?,
+            false_e: resolve_exp(false_e, variable_map)?,
+        })),
     }
 }
 
@@ -122,6 +131,15 @@ fn resolve_statement(
             variable_map,
         )?)),
         Statement::Null => Ok(Statement::Null),
+        Statement::If { cond, then, else_s } => {
+            Ok(Statement::If { cond: *resolve_exp(Box::new(cond), variable_map)?, then: Box::new(resolve_statement(*then, variable_map)?), else_s: {
+                if else_s.is_some() {
+                    Some(Box::new(resolve_statement(*else_s.unwrap(), variable_map)?))
+                } else {
+                    None
+                }
+            } })
+        },
     }
 }
 

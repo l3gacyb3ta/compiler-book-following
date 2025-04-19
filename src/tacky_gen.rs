@@ -1,4 +1,6 @@
-use crate::parser::{BinOp, BlockItem, Declaration, Expression, Factor, Function, Program, Statement, UnaryOp};
+use crate::parser::{
+    BinOp, BlockItem, Declaration, Expression, Factor, Function, Program, Statement, UnaryOp,
+};
 
 #[derive(Clone, Debug)]
 pub struct TProgram {
@@ -233,7 +235,7 @@ impl From<Program> for TProgram {
                     });
 
                     lhs
-                },
+                }
                 Expression::AssignmentOp { lhs, rhs, op } => {
                     let lhs = match *lhs {
                         Expression::Factor(f) => match f {
@@ -242,16 +244,22 @@ impl From<Program> for TProgram {
                         },
                         _ => unreachable!(),
                     };
-                    
+
                     let old = Val::Var(get_new_id("previous_value"));
-                    instructions.push(TInstruction::Copy { src: lhs.clone(), dst: old.clone() });
-                    
+                    instructions.push(TInstruction::Copy {
+                        src: lhs.clone(),
+                        dst: old.clone(),
+                    });
+
                     let rhs = expression_to_tacky(*rhs, instructions);
                     let result = Val::Var(get_new_id("result"));
 
-                    instructions.push(
-                        TInstruction::Binary { binary_op: binop_to_tacky(op), src1: rhs, src2: old, dst: result.clone() }
-                    );
+                    instructions.push(TInstruction::Binary {
+                        binary_op: binop_to_tacky(op),
+                        src1: rhs,
+                        src2: old,
+                        dst: result.clone(),
+                    });
 
                     instructions.push(TInstruction::Copy {
                         src: result,
@@ -260,7 +268,38 @@ impl From<Program> for TProgram {
 
                     lhs
                 }
+                Expression::Conditional {
+                    condition,
+                    true_e,
+                    false_e,
+                } => {
+                    // <condition> : <e1> ? <e2>
+                    let middle_c = Val::Var(get_new_id("C"));
 
+                    let cond = expression_to_tacky(*condition, instructions);
+                    instructions.push(TInstruction::Copy { src: cond, dst: middle_c.clone() });
+
+
+                    let e2_label = get_new_label("e2_label");
+                    let end_label = get_new_label("end_label");
+                    let result = Val::Var(get_new_id("result"));
+
+                    instructions.push(TInstruction::JumpIfZero { condition: middle_c, target: end_label.clone() });
+
+                    // calculate e1
+                    let v1 = expression_to_tacky(*true_e, instructions);
+                    instructions.push(TInstruction::Copy { src: v1, dst: result.clone() });
+                    instructions.push(TInstruction::Jump { target: end_label.clone()});
+
+                    // calculate e2
+                    instructions.push(TInstruction::Label(e2_label));
+                    let v2 = expression_to_tacky(*false_e, instructions);
+                    instructions.push(TInstruction::Copy { src: v2, dst: result.clone() });
+
+                    instructions.push(TInstruction::Label(end_label));
+                    
+                    result
+                },
             }
         }
 
@@ -291,11 +330,41 @@ impl From<Program> for TProgram {
                 Statement::Return(expression) => {
                     let val = expression_to_tacky(expression, &mut instructions);
                     instructions.push(TInstruction::Return(val));
-                },
+                }
                 Statement::Expression(expression) => {
                     expression_to_tacky(expression, &mut instructions);
-                },
+                }
                 Statement::Null => todo!(),
+                Statement::If { cond, then, else_s } => {
+                    let cond_result = expression_to_tacky(cond, &mut instructions);
+
+                    let middle_c = Val::Var(get_new_id("C"));
+                    instructions.push(TInstruction::Copy {
+                        src: cond_result,
+                        dst: middle_c.clone(),
+                    });
+
+                    let end = get_new_label("end");
+                    let else_label = get_new_id("else");
+
+                    instructions.push(TInstruction::JumpIfZero {
+                        condition: middle_c,
+                        target: if else_s.is_some() { else_label.clone() } else { end.clone() },
+                    });
+
+                    instructions.append(&mut statement_to_instructions(*then));
+
+                    if let Some(else_s) = else_s {
+                        instructions.push(TInstruction::Jump {
+                            target: end.clone(),
+                        });
+                        instructions.push(TInstruction::Label(else_label.clone()));
+
+                        instructions.append(&mut statement_to_instructions(*else_s));
+                    }
+
+                    instructions.push(TInstruction::Label(end))
+                }
             }
 
             instructions
@@ -307,18 +376,21 @@ impl From<Program> for TProgram {
                     let mut instr = statement_to_instructions(statement);
                     instructions.append(&mut instr);
                 }
-                BlockItem::Declaration(Declaration { identifier: variable, init}) => {
+                BlockItem::Declaration(Declaration {
+                    identifier: variable,
+                    init,
+                }) => {
                     match init {
                         Some(exp) => {
                             let result = expression_to_tacky(*exp, instructions);
-                            instructions.push(
-                                TInstruction::Copy { src: result, dst: Val::Var(variable) }
-                            );
-                        },
+                            instructions.push(TInstruction::Copy {
+                                src: result,
+                                dst: Val::Var(variable),
+                            });
+                        }
                         None => todo!(),
                     };
-
-                },
+                }
             }
         }
 
@@ -328,15 +400,13 @@ impl From<Program> for TProgram {
             for block_item in func.body.iter() {
                 block_item_to_instructions(block_item.clone(), &mut instructions);
             }
-            
+
             //hack to support functions with no returns, if it already has a return, this'll be ignored
-            instructions.push(
-                TInstruction::Return(Val::Constant(0))
-            );
+            instructions.push(TInstruction::Return(Val::Constant(0)));
 
             TFunction {
                 identifier: func.identifier,
-                instructions
+                instructions,
             }
         }
 
