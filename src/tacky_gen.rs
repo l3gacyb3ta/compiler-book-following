@@ -74,7 +74,7 @@ pub enum Val {
     Var(Identifier),
 }
 
-use std::{fmt::format, sync::atomic::AtomicUsize};
+use std::sync::atomic::AtomicUsize;
 static STACK_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 fn get_new_id(descriptor: &str) -> Identifier {

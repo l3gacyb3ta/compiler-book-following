@@ -20,15 +20,15 @@ impl CodeEmission for Reg {
 }
 
 impl Reg {
-    pub fn emit_1byte(&self) -> String {
-        match self {
-            Reg::AX => "%al",
-            Reg::DX => "%dl",
-            Reg::R10 => "%r10b",
-            Reg::R11 => "%r11b",
-        }
-        .to_owned()
-    }
+    // pub fn emit_1byte(&self) -> String {
+    //     match self {
+    //         Reg::AX => "%al",
+    //         Reg::DX => "%dl",
+    //         Reg::R10 => "%r10b",
+    //         Reg::R11 => "%r11b",
+    //     }
+    //     .to_owned()
+    // }
 }
 
 impl CodeEmission for Operand {
@@ -42,14 +42,14 @@ impl CodeEmission for Operand {
     }
 }
 
-impl Operand {
-    pub fn emit_1byte(&self) -> String {
-        match self {
-            Operand::Register(reg) => reg.emit_1byte(),
-            x => x.emit(),
-        }
-    }
-}
+// impl Operand {
+//     pub fn emit_1byte(&self) -> String {
+//         match self {
+//             Operand::Register(reg) => reg.emit_1byte(),
+//             x => x.emit(),
+//         }
+//     }
+// }
 
 impl CodeEmission for AUnOp {
     fn emit(&self) -> String {

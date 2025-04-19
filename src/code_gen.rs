@@ -1,4 +1,5 @@
 use crate::tacky_gen::{Identifier, TBinOp, TFunction, TInstruction, TProgram, TUnaryOp, Val};
+use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
 pub struct AProgram {
@@ -84,9 +85,6 @@ pub enum ABinOp {
     Sub,
     Mult,
 }
-
-use std::{collections::HashMap, sync::atomic::AtomicUsize};
-static PSEUDO_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 impl From<Val> for Operand {
     fn from(val: Val) -> Self {

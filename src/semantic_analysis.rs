@@ -90,11 +90,6 @@ pub fn resolve_exp(
     }
 }
 
-/// check if two enums are the same variant
-fn variant_eq<T>(a: &T, b: &T) -> bool {
-    std::mem::discriminant(a) == std::mem::discriminant(b)
-}
-
 pub fn resolve_factor(
     factor: Factor,
     variable_map: &mut HashMap<String, String>,

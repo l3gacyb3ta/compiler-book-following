@@ -19,7 +19,7 @@ pub enum Token {
     Semicolon,
     Negation,
     BitwiseComplment,
-    Decrement,
+    // Decrement,
     Assignment,
 
     AssignmentAddition,
