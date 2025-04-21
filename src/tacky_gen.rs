@@ -1,5 +1,5 @@
 use crate::parser::{
-    BinOp, BlockItem, Declaration, Expression, Factor, Function, Program, Statement, UnaryOp,
+    BinOp, BlockItem, Declaration, Expression, Factor, ForInit, Function, Program, Statement, UnaryOp
 };
 
 #[derive(Clone, Debug)]
@@ -386,11 +386,117 @@ impl From<Program> for TProgram {
                     for item in block_items.iter() {
                         block_item_to_instructions(item.clone(), &mut instructions);
                     }
+                }
+                Statement::Break(lbl) => {
+                    instructions.push(TInstruction::Jump { target: format!("{}.break", lbl) })
+                },
+                Statement::Continue(lbl) => {
+                    instructions.push(TInstruction::Jump { target: format!("{}.continue", lbl) })
+                },
+                Statement::While { cond, body, label } => {
+                    instructions.push(TInstruction::Label(format!("{}.continue", label)));
+                    
+                    let condition_result = expression_to_tacky(cond, &mut instructions);
+                    instructions.push(
+                        TInstruction::JumpIfZero { condition: condition_result, target: format!("{}.break", label) }
+                    );
+
+                    instructions.append(&mut statement_to_instructions(*body));
+
+                    instructions.push(TInstruction::Jump{target: format!("{}.continue", label)});
+                    
+                    instructions.push(TInstruction::Label(format!("{}.break", label)));
+                },
+                Statement::DoWhile {
+                    body,
+                    condition,
+                    label,
+                } => {
+                    // continue label
+                    instructions.push(TInstruction::Label(format!("{}.start", label)));
+
+                    instructions.append(&mut statement_to_instructions(*body));
+                    instructions.push(TInstruction::Label(format!("{}.continue", label)));
+
+                    let condition_result = expression_to_tacky(condition, &mut instructions);
+
+                    instructions.push(
+                        TInstruction::JumpIfNotZero { condition: condition_result, target: format!("{}.start", label) }
+                    );
+                },
+                Statement::For {
+                    init,
+                    condition,
+                    post,
+                    body,
+                    label,
+                } => {
+                    // init to instructions
+                    for_init_to_instructions(init, &mut instructions);
+
+                    instructions.push(TInstruction::Label(format!("{}.start", label)));
+                    
+                    // instrucitons for condtion
+                    match condition {
+                        Some(condition) => {
+                            let result = expression_to_tacky(condition, &mut instructions);
+                            instructions.push(
+                                TInstruction::JumpIfZero { condition: result, target: format!("{}.break", label) }
+                            );
+                        },
+                        None => {
+                            // don't emit anything
+                        },
+                    };
+
+                    //instructions for body
+                    instructions.append(&mut statement_to_instructions(*body));
+
+                    instructions.push(TInstruction::Label(format!("{}.continue", label)));
+
+                    match post {
+                        Some(exp) => {
+                            expression_to_tacky(exp, &mut instructions);
+                        },
+                        None => {},
+                    };
+
+                    instructions.push(TInstruction::Jump{target: format!("{}.start", label)});
+
+                    instructions.push(TInstruction::Label(format!("{}.break", label)));
                 },
             }
 
             instructions
         }
+
+        fn for_init_to_instructions(for_init: ForInit, instructions: &mut Vec<TInstruction>) {
+            match for_init {
+                ForInit::InitDecl(Declaration {
+                    identifier: variable,
+                    init,
+                }) => {
+                    match init {
+                        Some(exp) => {
+                            let result = expression_to_tacky(*exp, instructions);
+                            instructions.push(TInstruction::Copy {
+                                src: result,
+                                dst: Val::Var(variable),
+                            });
+                        }
+                        None => {},
+                    };
+                },
+                ForInit::InitExp(expression) => {
+                    match expression {
+                        Some(exp) => {
+                            expression_to_tacky(exp, instructions);
+                        },
+                        None => {},
+                    }
+                },
+            }
+        } 
 
         fn block_item_to_instructions(block_item: BlockItem, instructions: &mut Vec<TInstruction>) {
             match block_item {

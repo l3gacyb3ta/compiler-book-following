@@ -28,6 +28,17 @@ pub struct Declaration {
 }
 
 pub type Block = Vec<BlockItem>;
+pub type Identifier = String;
+
+use std::sync::atomic::AtomicUsize;
+static IDENTIFIER_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+fn get_new_identfier() -> Identifier {
+    let count = IDENTIFIER_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+    format!("loop.{}", count)
+}
+
 
 #[derive(Debug, Clone)]
 pub enum Statement {
@@ -35,7 +46,18 @@ pub enum Statement {
     Expression(Expression),
     If { cond: Expression, then: Box<Statement>, else_s: Option<Box<Statement>> },
     Compound(Block),
+    Break(Identifier),
+    Continue(Identifier),
+    While {cond: Expression, body: Box<Statement>, label: Identifier},
+    DoWhile {body: Box<Statement>, condition: Expression, label: Identifier},
+    For {init: ForInit, condition: Option<Expression>, post: Option<Expression>, body: Box<Statement>, label: Identifier},
     Null
+}
+
+#[derive(Debug, Clone)]
+pub enum ForInit {
+    InitDecl(Declaration),
+    InitExp(Option<Expression>)
 }
 
 #[derive(Debug, Clone)]
@@ -105,6 +127,22 @@ fn peek(tokens: &mut Vec<Token>) -> Token {
 #[inline]
 fn token_is(a: &Token, b: &Token) -> bool {
     std::mem::discriminant(a) == std::mem::discriminant(b)
+}
+
+impl Parsable for ForInit {
+    fn parse(tokens: &mut Vec<Token>) -> Self {
+        if token_is(&peek(tokens), &Token::Int) {
+            ForInit::InitDecl(Declaration::parse(tokens))
+        } else {
+            let exp = ForInit::InitExp(Expression::parse_optional(tokens));
+
+            if token_is(&peek(tokens), &Token::Semicolon) {
+                expect(tokens, Token::Semicolon);
+            }
+
+            exp
+        }
+    }
 }
 
 impl Parsable for UnaryOp {
@@ -276,6 +314,16 @@ impl Parsable for Expression {
     }
 }
 
+impl Expression {
+    fn parse_optional(tokens: &mut Vec<Token>) -> Option<Expression> {
+        if token_is(&peek(tokens), &Token::Semicolon) || token_is(&peek(tokens), &Token::CloseParen) {
+            None
+        } else {
+            Some(Expression::parse(tokens))
+        }
+    }
+}
+
 impl Parsable for Factor {
     fn parse(tokens: &mut Vec<Token>) -> Self {
         let next_token = peek(tokens);
@@ -380,6 +428,59 @@ impl Parsable for Statement {
             expect(tokens, Token::CloseBrace);
 
             return Statement::Compound(items);
+        } else if token_is(&next_token, &Token::While) {
+            expect(tokens, Token::While);
+
+            let exp = Expression::parse(tokens);
+            let body = Statement::parse(tokens);
+
+            return Statement::While { cond: exp, body: Box::new(body), label: get_new_identfier() };
+        } else if token_is(&next_token, &Token::Do) {
+            expect(tokens, Token::Do);
+
+            let body = Statement::parse(tokens);
+
+            expect(tokens, Token::While);
+            
+            let cond = Expression::parse(tokens);
+            let do_while = Statement::DoWhile { body: Box::new(body), condition: cond, label: get_new_identfier() };
+
+            expect(tokens, Token::Semicolon);
+
+            return do_while;
+        } else if token_is(&next_token, &Token::For) {
+            expect(tokens, Token::For);
+            
+            expect(tokens, Token::OpenParen);
+            let init = ForInit::parse(tokens);
+
+            // expect(tokens, Token::Semicolon);
+
+            
+            let cond = Expression::parse_optional(tokens);
+            expect(tokens, Token::Semicolon);
+
+            let post = Expression::parse_optional(tokens);
+            // expect(tokens, Token::Semicolon);
+
+            println!("\n{:?}\n {:?}\n", cond, post);
+            expect(tokens, Token::CloseParen);
+
+            let body = Statement::parse(tokens);
+
+            return Statement::For { init, condition: cond, post, body: Box::new(body), label: get_new_identfier() }
+        }
+
+        let simple = match next_token {
+            Token::Break => Some(Statement::Break(get_new_identfier())),
+            Token::Continue => Some(Statement::Continue(get_new_identfier())),
+            _ => None
+        };
+
+        if simple.is_some() {
+            expect(tokens, next_token);
+            expect(tokens, Token::Semicolon);
+            return simple.unwrap();
         }
 
         expect(tokens, Token::Return);

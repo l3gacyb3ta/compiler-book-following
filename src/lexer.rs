@@ -47,6 +47,12 @@ pub enum Token {
     Void,
     Return,
 
+    Do,
+    While,
+    For,
+    Break,
+    Continue,
+
     If,
     Else,
     QuestionMark,
@@ -115,6 +121,12 @@ pub fn tokenize(string: &str) -> Vec<Token> {
     let question = re!(r"^\?");
     let colon = re!("^:");
 
+    let do_t = re!("^do");
+    let while_t = re!("^while");
+    let for_t = re!("^for");
+    let break_t = re!("^break");
+    let continue_t = re!("^continue");
+
     let dec = re!("^--");
 
     let regexes: Vec<(Regex, &str)> = vec![
@@ -156,6 +168,13 @@ pub fn tokenize(string: &str) -> Vec<Token> {
         (gteq, "gteq"),
         (constant, "constant"),
         (ident, "ident"),
+
+        (do_t, "do"),
+        (while_t, "while"),
+        (for_t, "for"),
+        (break_t, "break"),
+        (continue_t, "continue"),
+        
     ];
 
     let mut output = vec![];
@@ -235,6 +254,11 @@ pub fn tokenize(string: &str) -> Vec<Token> {
                 match value {
                     "return" => Token::Return,
                     "int" => Token::Int,
+                    "do" => Token::Do,
+                    "while" => Token::While,
+                    "for" => Token::For,
+                    "break" => Token::Break,
+                    "continue" => Token::Continue,
                     value => Token::Identifier(value.into()),
                 }
             }

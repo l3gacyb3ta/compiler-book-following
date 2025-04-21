@@ -1,9 +1,9 @@
 int main() {
-    int a = 1;
-    {
-        int a = 3;
-        a = 4;
+    int j = 0;
+
+    while (j < 10) {
+        j += 1;
     }
 
-    return a;
+    return j;
 }
