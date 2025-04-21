@@ -12,7 +12,7 @@ pub struct Program {
 #[derive(Debug, Clone)]
 pub struct Function {
     pub identifier: String,
-    pub body: Vec<BlockItem>,
+    pub body: Block,
 }
 
 #[derive(Debug, Clone)]
@@ -27,11 +27,14 @@ pub struct Declaration {
     pub init: Option<Box<Expression>>,
 }
 
+pub type Block = Vec<BlockItem>;
+
 #[derive(Debug, Clone)]
 pub enum Statement {
     Return(Expression),
     Expression(Expression),
     If { cond: Expression, then: Box<Statement>, else_s: Option<Box<Statement>> },
+    Compound(Block),
     Null
 }
 
@@ -366,6 +369,17 @@ impl Parsable for Statement {
                 else_s,
             }
 
+        } else if token_is(&next_token, &Token::OpenBrace) {
+            expect(tokens, Token::OpenBrace);
+
+            let mut items = vec![];
+            while !(token_is(&peek(tokens), &Token::CloseBrace)) {
+                items.push(BlockItem::parse(tokens));
+            }
+
+            expect(tokens, Token::CloseBrace);
+
+            return Statement::Compound(items);
         }
 
         expect(tokens, Token::Return);

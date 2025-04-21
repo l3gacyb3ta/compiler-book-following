@@ -1,7 +1,25 @@
 use partial_application::partial;
 
-use crate::parser::{BlockItem, Declaration, Expression, Factor, Function, Program, Statement};
+use crate::parser::{Block, BlockItem, Declaration, Expression, Factor, Function, Program, Statement};
 use std::{collections::HashMap, error::Error};
+
+/// `user_defined_name -> (Unique_name, from_current_scope)`
+type VariableMap = HashMap<String, (String, bool)>;
+
+trait CopyableMap {
+    fn copy_map(&self) -> Self;
+}
+
+impl CopyableMap for VariableMap {
+    fn copy_map(&self) -> Self {
+        let mut out = HashMap::new();
+        for (user_def, (unique, _)) in self.iter() {
+            out.insert(user_def.clone(), (unique.clone(), false));
+        }
+
+        return out;
+    }
+}
 
 use std::sync::atomic::AtomicUsize;
 static UNIQUE_COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -14,14 +32,14 @@ fn get_temporary(descriptor: &str) -> String {
 
 fn resolve_declaration(
     declaration: Declaration,
-    variable_map: &mut HashMap<String, String>,
+    variable_map: &mut VariableMap,
 ) -> Result<Declaration, Box<dyn Error>> {
-    if variable_map.contains_key(&declaration.identifier) {
+    if variable_map.contains_key(&declaration.identifier) && variable_map.get(&declaration.identifier).unwrap().1 {
         return Err(format!("Duplicate declaration of {}!", declaration.identifier).into());
     }
 
     let temporary_name = get_temporary(&declaration.identifier);
-    variable_map.insert(declaration.identifier.clone(), temporary_name.clone());
+    variable_map.insert(declaration.identifier.clone(), (temporary_name.clone(), true));
 
     let mut init = declaration.init;
 
@@ -37,7 +55,7 @@ fn resolve_declaration(
 
 pub fn resolve_exp(
     init: Box<Expression>,
-    variable_map: &mut HashMap<String, String>,
+    variable_map: &mut VariableMap,
 ) -> Result<Box<Expression>, Box<dyn Error>> {
     match *init {
         Expression::Factor(factor) => Ok(Box::new(Expression::Factor(resolve_factor(
@@ -92,7 +110,7 @@ pub fn resolve_exp(
 
 pub fn resolve_factor(
     factor: Factor,
-    variable_map: &mut HashMap<String, String>,
+    variable_map: &mut VariableMap,
 ) -> Result<Factor, Box<dyn Error>> {
     match factor {
         Factor::Unary { op, fac } => Ok(Factor::Unary {
@@ -105,7 +123,7 @@ pub fn resolve_factor(
         Factor::Var { ident } => {
             if variable_map.contains_key(&ident.clone()) {
                 Ok(Factor::Var {
-                    ident: variable_map.get(&ident).unwrap().to_string(),
+                    ident: variable_map.get(&ident).unwrap().0.to_string(),
                 })
             } else {
                 Err(format!("Undeclared variable {}!", ident).into())
@@ -117,7 +135,7 @@ pub fn resolve_factor(
 
 fn resolve_statement(
     statement: Statement,
-    variable_map: &mut HashMap<String, String>,
+    variable_map: &mut VariableMap,
 ) -> Result<Statement, Box<dyn Error>> {
     match statement {
         Statement::Return(e) => Ok(Statement::Return(*resolve_exp(Box::new(e), variable_map)?)),
@@ -126,20 +144,43 @@ fn resolve_statement(
             variable_map,
         )?)),
         Statement::Null => Ok(Statement::Null),
-        Statement::If { cond, then, else_s } => {
-            Ok(Statement::If { cond: *resolve_exp(Box::new(cond), variable_map)?, then: Box::new(resolve_statement(*then, variable_map)?), else_s: {
+        Statement::If { cond, then, else_s } => Ok(Statement::If {
+            cond: *resolve_exp(Box::new(cond), variable_map)?,
+            then: Box::new(resolve_statement(*then, variable_map)?),
+            else_s: {
                 if else_s.is_some() {
                     Some(Box::new(resolve_statement(*else_s.unwrap(), variable_map)?))
                 } else {
                     None
                 }
-            } })
+            },
+        }),
+        Statement::Compound(block_items) => {
+            let mut new_variable_map = variable_map.copy_map();
+            return Ok(Statement::Compound(resolve_block(block_items, &mut new_variable_map)?));
         },
     }
 }
 
+fn resolve_blockitem(block_item: BlockItem, variable_map: &mut VariableMap) -> Result<BlockItem, Box<dyn Error>> {
+    match block_item {
+        BlockItem::Statement(statement) => Ok(BlockItem::Statement(resolve_statement(statement, variable_map)?)),
+        BlockItem::Declaration(declaration) => Ok(BlockItem::Declaration(resolve_declaration(declaration, variable_map)?)),
+    }
+}
+
+fn resolve_block(block: Block, variable_map: &mut VariableMap) -> Result<Block, Box<dyn Error>> {
+    let mut out = vec![];
+    for item in block.iter() {
+        out.push(resolve_blockitem(item.clone(), variable_map)?);
+    }
+
+    Ok(out)
+}
+
 pub fn semantically_analyze(program: Program) -> Program {
     let mut variable_map = HashMap::new();
+
     Program {
         functions: program
             .functions
@@ -149,7 +190,7 @@ pub fn semantically_analyze(program: Program) -> Program {
     }
 }
 
-fn sem_an_function(variable_map: &mut HashMap<String, String>, function: &Function) -> Function {
+fn sem_an_function(variable_map: &mut VariableMap, function: &Function) -> Function {
     Function {
         identifier: function.clone().identifier,
         body: function
@@ -160,7 +201,7 @@ fn sem_an_function(variable_map: &mut HashMap<String, String>, function: &Functi
     }
 }
 
-fn sem_an_body(variable_map: &mut HashMap<String, String>, block_item: &BlockItem) -> BlockItem {
+fn sem_an_body(variable_map: &mut VariableMap, block_item: &BlockItem) -> BlockItem {
     match block_item {
         BlockItem::Statement(statement) => {
             BlockItem::Statement(resolve_statement(statement.clone(), variable_map).unwrap())

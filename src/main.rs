@@ -1,10 +1,10 @@
 // mod constant_evaluator;
-mod code_emit;
-mod code_gen;
 mod lexer;
 mod parser;
 mod semantic_analysis;
 mod tacky_gen;
+mod code_gen;
+mod code_emit;
 
 // use constant_evaluator::evaluate_constants_program;
 use code_emit::CodeEmission;
@@ -39,11 +39,6 @@ fn main() {
     let program_analyzed = semantic_analysis::semantically_analyze(program);
 
     println!("{:#?}\n--------", program_analyzed);
-
-
-    // let program = evaluate_constants_program(program);
-
-    // println!("{:#?}\n--------", program);
 
     let tacky: TProgram = program_analyzed.into();
 
