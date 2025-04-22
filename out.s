@@ -3,14 +3,8 @@ main:
 	pushq	%rbp
 	movq	%rsp, %rbp
 	
-	subq	$8, %rsp
-	movl	$33, %edi
-	call putchar@PLT
-	movl	%eax, -4(%rbp)
-	movl	$33, %edi
-	call putchar@PLT
-	movl	%eax, -8(%rbp)
-	movl	$0, %eax
+	subq	$0, %rsp
+	movl	$99, %eax
 	movq	%rbp, %rsp
 	popq	%rbp
 	ret

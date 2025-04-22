@@ -45,7 +45,6 @@ fn main() {
 
     println!("{:#?}\n--------", symbols);
 
-
     let tacky: TProgram = program_analyzed.into();
 
     println!("{:#?}\n--------", tacky);

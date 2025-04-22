@@ -470,14 +470,12 @@ impl Parsable for Statement {
                 expect(tokens, Token::Else);
 
                 let braced = if token_is(&peek(tokens), &Token::OpenBrace) {
-                    expect(tokens, Token::OpenBrace);
                     true
                 } else {
                     false
                 };
                 let value = Some(Box::new(Statement::parse(tokens)));
                 if braced {
-                    expect(tokens, Token::CloseBrace);
                 };
 
                 value
@@ -620,6 +618,10 @@ impl FunctionDeclaration {
         let mut params = vec![];
 
         while !(token_is(&peek(tokens), &Token::CloseParen)) {
+            if let Token::Void = peek(tokens) {
+                expect(tokens, Token::Void);
+                break;
+            };
             expect(tokens, Token::Int);
 
             let identifier = expect(tokens, Token::Identifier("".to_owned()));
