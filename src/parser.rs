@@ -6,25 +6,32 @@ pub trait Parsable {
 
 #[derive(Debug)]
 pub struct Program {
-    pub functions: Vec<Function>,
+    pub functions: Vec<FunctionDeclaration>,
 }
 
 #[derive(Debug, Clone)]
-pub struct Function {
-    pub identifier: String,
-    pub body: Block,
+pub struct FunctionDeclaration {
+    pub identifier: Identifier,
+    pub params: Vec<Identifier>,
+    pub body: Option<Block>,
 }
 
 #[derive(Debug, Clone)]
 pub enum BlockItem {
     Statement(Statement),
-    Declaration(Declaration)
+    Declaration(Declaration),
 }
 
 #[derive(Debug, Clone)]
-pub struct Declaration {
+pub struct VariableDeclaration {
     pub identifier: String,
     pub init: Option<Box<Expression>>,
+}
+
+#[derive(Debug, Clone)]
+pub enum Declaration {
+    FunDecl(FunctionDeclaration),
+    VarDecl(VariableDeclaration),
 }
 
 pub type Block = Vec<BlockItem>;
@@ -39,25 +46,42 @@ fn get_new_identfier() -> Identifier {
     format!("loop.{}", count)
 }
 
-
 #[derive(Debug, Clone)]
 pub enum Statement {
     Return(Expression),
     Expression(Expression),
-    If { cond: Expression, then: Box<Statement>, else_s: Option<Box<Statement>> },
+    If {
+        cond: Expression,
+        then: Box<Statement>,
+        else_s: Option<Box<Statement>>,
+    },
     Compound(Block),
     Break(Identifier),
     Continue(Identifier),
-    While {cond: Expression, body: Box<Statement>, label: Identifier},
-    DoWhile {body: Box<Statement>, condition: Expression, label: Identifier},
-    For {init: ForInit, condition: Option<Expression>, post: Option<Expression>, body: Box<Statement>, label: Identifier},
-    Null
+    While {
+        cond: Expression,
+        body: Box<Statement>,
+        label: Identifier,
+    },
+    DoWhile {
+        body: Box<Statement>,
+        condition: Expression,
+        label: Identifier,
+    },
+    For {
+        init: ForInit,
+        condition: Option<Expression>,
+        post: Option<Expression>,
+        body: Box<Statement>,
+        label: Identifier,
+    },
+    Null,
 }
 
 #[derive(Debug, Clone)]
 pub enum ForInit {
     InitDecl(Declaration),
-    InitExp(Option<Expression>)
+    InitExp(Option<Expression>),
 }
 
 #[derive(Debug, Clone)]
@@ -68,10 +92,26 @@ pub enum Expression {
         op: BinOp,
         rhs: Box<Expression>,
     },
-    Assignment {lhs: Box<Expression>, rhs: Box<Expression>},
-    AssignmentOp {lhs: Box<Expression>, rhs: Box<Expression>, op: BinOp},
+    Assignment {
+        lhs: Box<Expression>,
+        rhs: Box<Expression>,
+    },
+    AssignmentOp {
+        lhs: Box<Expression>,
+        rhs: Box<Expression>,
+        op: BinOp,
+    },
 
-    Conditional { condition: Box<Expression>, true_e: Box<Expression>, false_e: Box<Expression> }
+    Conditional {
+        condition: Box<Expression>,
+        true_e: Box<Expression>,
+        false_e: Box<Expression>,
+    },
+
+    FunctionCall {
+        ident: String,
+        args: Vec<Expression>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -79,7 +119,7 @@ pub enum Factor {
     Constant(i32),
     Unary { op: UnaryOp, fac: Box<Factor> },
     Expression(Box<Expression>),
-    Var {ident: String },
+    Var { ident: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -220,11 +260,11 @@ impl BinOp {
 
             Token::Assignment => 1,
 
-            Token::AssignmentAddition |
-            Token::AssignmentSubtraction |
-            Token::AssignmentMultiplication |
-            Token::AssignmentModulo |
-            Token::AssignmentDivision => 1,
+            Token::AssignmentAddition
+            | Token::AssignmentSubtraction
+            | Token::AssignmentMultiplication
+            | Token::AssignmentModulo
+            | Token::AssignmentDivision => 1,
             _ => -1,
         }
     }
@@ -243,16 +283,13 @@ impl BinOp {
             || token_is(next_token, &Token::LessThan)
             || token_is(next_token, &Token::Equality)
             || token_is(next_token, &Token::NotEquality)
-
             || token_is(next_token, &Token::AssignmentAddition)
             || token_is(next_token, &Token::AssignmentMultiplication)
             || token_is(next_token, &Token::AssignmentDivision)
             || token_is(next_token, &Token::AssignmentSubtraction)
             || token_is(next_token, &Token::AssignmentModulo)
-
             || token_is(next_token, &Token::Assignment)
             || token_is(next_token, &Token::QuestionMark)
-
     }
 }
 
@@ -262,12 +299,17 @@ impl Parsable for Expression {
             let mut lhs = Expression::Factor(Factor::parse(tokens));
             let mut next_token = peek(tokens);
 
-            while BinOp::is_bin_op(&next_token) && BinOp::token_precedance(next_token.clone()) >= min_prec {
+            while BinOp::is_bin_op(&next_token)
+                && BinOp::token_precedance(next_token.clone()) >= min_prec
+            {
                 if token_is(&next_token, &Token::Assignment) {
                     expect(tokens, Token::Assignment);
 
                     let right: Expression = Expression::parse(tokens);
-                    let left: Expression = Expression::Assignment { lhs: Box::new(lhs.clone()), rhs: Box::new(right) };
+                    let left: Expression = Expression::Assignment {
+                        lhs: Box::new(lhs.clone()),
+                        rhs: Box::new(right),
+                    };
                     lhs = left;
                 } else if token_is(&next_token, &Token::QuestionMark) {
                     fn parse_conditional_middle(tokens: &mut Vec<Token>) -> Expression {
@@ -278,22 +320,28 @@ impl Parsable for Expression {
                         return expression;
                     }
 
-
                     let middle = parse_conditional_middle(tokens);
                     let right = parse_precedance(tokens, BinOp::token_precedance(next_token));
-                    lhs = Expression::Conditional { condition: Box::new(lhs), true_e: Box::new(middle), false_e: Box::new(right) }
-
+                    lhs = Expression::Conditional {
+                        condition: Box::new(lhs),
+                        true_e: Box::new(middle),
+                        false_e: Box::new(right),
+                    }
                 } else if next_token.is_compound_assignment().is_some() {
                     // expect(tokens, Token::AssignmentAddition);
                     let op = tokens.pop().unwrap().is_compound_assignment().unwrap();
 
                     let right: Expression = Expression::parse(tokens);
-                    let left: Expression = Expression::AssignmentOp { lhs: Box::new(lhs.clone()), rhs: Box::new(right), op };
+                    let left: Expression = Expression::AssignmentOp {
+                        lhs: Box::new(lhs.clone()),
+                        rhs: Box::new(right),
+                        op,
+                    };
                     lhs = left
                 }
 
-                if !BinOp::is_bin_op(&peek(tokens) ) {
-                    return lhs
+                if !BinOp::is_bin_op(&peek(tokens)) {
+                    return lhs;
                 }
 
                 let operator = BinOp::parse(tokens);
@@ -316,7 +364,8 @@ impl Parsable for Expression {
 
 impl Expression {
     fn parse_optional(tokens: &mut Vec<Token>) -> Option<Expression> {
-        if token_is(&peek(tokens), &Token::Semicolon) || token_is(&peek(tokens), &Token::CloseParen) {
+        if token_is(&peek(tokens), &Token::Semicolon) || token_is(&peek(tokens), &Token::CloseParen)
+        {
             None
         } else {
             Some(Expression::parse(tokens))
@@ -355,17 +404,32 @@ impl Parsable for Factor {
             Factor::Expression(Box::new(inner))
         } else if token_is(&next_token, &Token::Identifier("".to_owned())) {
             let identifier = expect(tokens, Token::Identifier("".to_owned()));
-
-            println!("{:?} -", next_token);
-            let next_token = peek(tokens);
-            println!("{:?} ;", next_token);
-
             let identifier = match identifier {
                 Token::Identifier(x) => x,
                 _ => unreachable!(),
             };
 
-            Factor::Var { ident: identifier }
+            match peek(tokens) {
+                Token::OpenParen => {
+                    expect(tokens, Token::OpenParen);
+
+                    let mut params = vec![];
+                    while !(token_is(&peek(tokens), &Token::CloseParen)) {
+                        let exp = Expression::parse(tokens);
+
+                        if token_is(&peek(tokens), &Token::Comma) {
+                            expect(tokens, Token::Comma);
+                        }
+
+                        params.push(exp);
+                    }
+                    expect(tokens, Token::CloseParen);
+
+
+                    Factor::Expression(Box::new(Expression::FunctionCall { ident: identifier, args: params }))
+                },
+                _ => Factor::Var { ident: identifier }
+            }
         } else if token_is(&next_token, &Token::Assignment) {
             panic!("uhhh")
         } else {
@@ -380,10 +444,10 @@ impl Parsable for Statement {
 
         if token_is(&next_token, &Token::Identifier("".into())) {
             let statement = Statement::Expression(Expression::parse(tokens));
-            println!("S {:?}", statement);
+
             expect(tokens, Token::Semicolon);
 
-            return statement
+            return statement;
         } else if token_is(&next_token, &Token::If) {
             expect(tokens, Token::If);
 
@@ -392,11 +456,15 @@ impl Parsable for Statement {
             let braced = if token_is(&peek(tokens), &Token::OpenBrace) {
                 expect(tokens, Token::OpenBrace);
                 true
-            } else { false };
+            } else {
+                false
+            };
 
             let then = Box::new(Statement::parse(tokens));
 
-            if braced {expect(tokens, Token::CloseBrace);};
+            if braced {
+                expect(tokens, Token::CloseBrace);
+            };
 
             let else_s = if token_is(&peek(tokens), &Token::Else) {
                 expect(tokens, Token::Else);
@@ -404,19 +472,20 @@ impl Parsable for Statement {
                 let braced = if token_is(&peek(tokens), &Token::OpenBrace) {
                     expect(tokens, Token::OpenBrace);
                     true
-                } else { false };
+                } else {
+                    false
+                };
                 let value = Some(Box::new(Statement::parse(tokens)));
-                if braced {expect(tokens, Token::CloseBrace);};
+                if braced {
+                    expect(tokens, Token::CloseBrace);
+                };
 
                 value
-            } else { None };
+            } else {
+                None
+            };
 
-            return Statement::If {
-                cond,
-                then,
-                else_s,
-            }
-
+            return Statement::If { cond, then, else_s };
         } else if token_is(&next_token, &Token::OpenBrace) {
             expect(tokens, Token::OpenBrace);
 
@@ -434,29 +503,36 @@ impl Parsable for Statement {
             let exp = Expression::parse(tokens);
             let body = Statement::parse(tokens);
 
-            return Statement::While { cond: exp, body: Box::new(body), label: get_new_identfier() };
+            return Statement::While {
+                cond: exp,
+                body: Box::new(body),
+                label: get_new_identfier(),
+            };
         } else if token_is(&next_token, &Token::Do) {
             expect(tokens, Token::Do);
 
             let body = Statement::parse(tokens);
 
             expect(tokens, Token::While);
-            
+
             let cond = Expression::parse(tokens);
-            let do_while = Statement::DoWhile { body: Box::new(body), condition: cond, label: get_new_identfier() };
+            let do_while = Statement::DoWhile {
+                body: Box::new(body),
+                condition: cond,
+                label: get_new_identfier(),
+            };
 
             expect(tokens, Token::Semicolon);
 
             return do_while;
         } else if token_is(&next_token, &Token::For) {
             expect(tokens, Token::For);
-            
+
             expect(tokens, Token::OpenParen);
             let init = ForInit::parse(tokens);
 
             // expect(tokens, Token::Semicolon);
 
-            
             let cond = Expression::parse_optional(tokens);
             expect(tokens, Token::Semicolon);
 
@@ -468,13 +544,19 @@ impl Parsable for Statement {
 
             let body = Statement::parse(tokens);
 
-            return Statement::For { init, condition: cond, post, body: Box::new(body), label: get_new_identfier() }
+            return Statement::For {
+                init,
+                condition: cond,
+                post,
+                body: Box::new(body),
+                label: get_new_identfier(),
+            };
         }
 
         let simple = match next_token {
             Token::Break => Some(Statement::Break(get_new_identfier())),
             Token::Continue => Some(Statement::Continue(get_new_identfier())),
-            _ => None
+            _ => None,
         };
 
         if simple.is_some() {
@@ -501,53 +583,68 @@ impl Parsable for Declaration {
             _ => unreachable!(),
         };
 
-        
+        if token_is(&peek(tokens), &Token::OpenParen) {
+            return Self::FunDecl(FunctionDeclaration::parse_with_name(tokens, identifier));
+        }
+
         let init = if token_is(&peek(tokens), &Token::Assignment) {
             expect(tokens, Token::Assignment);
             let exp = Expression::parse(tokens);
-            
+
             Option::Some(Box::new(exp))
         } else {
             Option::None
         };
-        
-        expect(tokens, Token::Semicolon);
-        
-        Self {
-            identifier,
-            init,
-        }
 
+        expect(tokens, Token::Semicolon);
+
+        Self::VarDecl(VariableDeclaration { identifier, init })
     }
 }
 
 impl Parsable for BlockItem {
     fn parse(tokens: &mut Vec<Token>) -> Self {
         match peek(tokens) {
-            Token::Int => {
-                Self::Declaration(Declaration::parse(tokens))
-            },
+            Token::Int => Self::Declaration(Declaration::parse(tokens)),
             // Token::Identifier(ident) => {
             //     Self::Statement(())
             // },
-            _ => {
-                return Self::Statement(Statement::parse(tokens))
-            }
+            _ => return Self::Statement(Statement::parse(tokens)),
         }
     }
 }
 
-impl Parsable for Function {
-    fn parse(tokens: &mut Vec<Token>) -> Self {
-        expect(tokens, Token::Int);
-        let identifier = expect(tokens, Token::Identifier("".to_owned()));
-        let identifier = match identifier {
-            Token::Identifier(x) => x,
-            _ => unreachable!(),
+impl FunctionDeclaration {
+    fn parse_with_name(tokens: &mut Vec<Token>, identifier: String) -> Self {
+        expect(tokens, Token::OpenParen);
+        let mut params = vec![];
+
+        while !(token_is(&peek(tokens), &Token::CloseParen)) {
+            expect(tokens, Token::Int);
+
+            let identifier = expect(tokens, Token::Identifier("".to_owned()));
+            let identifier = match identifier {
+                Token::Identifier(x) => x,
+                _ => unreachable!(),
+            };
+
+            params.push(identifier);
+
+            if token_is(&peek(tokens), &Token::Comma) {
+                expect(tokens, Token::Comma);
+            };
+        }
+
+        expect(tokens, Token::CloseParen);
+
+        if !token_is(&peek(tokens), &Token::OpenBrace) {
+            return FunctionDeclaration {
+                identifier,
+                body: None,
+                params,
+            };
         };
 
-        expect(tokens, Token::OpenParen);
-        expect(tokens, Token::CloseParen);
         expect(tokens, Token::OpenBrace);
 
         let mut body = vec![];
@@ -559,19 +656,40 @@ impl Parsable for Function {
 
         expect(tokens, Token::CloseBrace);
 
-        return Function {
+        return FunctionDeclaration {
             identifier,
-            body,
+            body: Some(body),
+            params,
         };
+    }
+}
+
+impl Parsable for FunctionDeclaration {
+    fn parse(tokens: &mut Vec<Token>) -> Self {
+        expect(tokens, Token::Int);
+
+        let identifier = expect(tokens, Token::Identifier("".to_owned()));
+        let identifier = match identifier {
+            Token::Identifier(x) => x,
+            _ => unreachable!(),
+        };
+
+        return FunctionDeclaration::parse_with_name(tokens, identifier)
     }
 }
 
 impl Parsable for Program {
     fn parse(tokens: &mut Vec<Token>) -> Self {
-        let function = Function::parse(tokens);
+        let mut functions = vec![];
+
+        while (!tokens.is_empty()) && token_is(&peek(tokens), &Token::Int) {
+            let function = FunctionDeclaration::parse(tokens);
+            
+            functions.push(function);
+        }
 
         Program {
-            functions: vec![function],
+            functions,
         }
     }
 }

@@ -2,16 +2,17 @@
 mod lexer;
 mod parser;
 mod semantic_analysis;
-mod tacky_gen;
-mod code_gen;
-mod code_emit;
+mod type_checker;
+// mod tacky_gen;
+// mod code_gen;
+// mod code_emit;
 
 // use constant_evaluator::evaluate_constants_program;
-use code_emit::CodeEmission;
-use code_gen::AProgram;
+// use code_emit::CodeEmission;
+// use code_gen::AProgram;
 use lexer::tokenize;
 use parser::{Parsable, Program};
-use tacky_gen::TProgram;
+// use tacky_gen::TProgram;
 use std::env::args;
 use std::fs;
 
@@ -37,18 +38,20 @@ fn main() {
     println!("{:#?}\n--------", program);
 
     let program_analyzed = semantic_analysis::semantically_analyze(program);
+    
+    let symbols = type_checker::typecheck_program(&program_analyzed);
 
     println!("{:#?}\n--------", program_analyzed);
 
-    let tacky: TProgram = program_analyzed.into();
+    // let tacky: TProgram = program_analyzed.into();
 
-    println!("{:#?}\n--------", tacky);
+    // println!("{:#?}\n--------", tacky);
 
-    let assembly_dsl: AProgram = tacky.into();
+    // let assembly_dsl: AProgram = tacky.into();
 
-    println!("{:#?}", assembly_dsl);
+    // println!("{:#?}", assembly_dsl);
 
-    let assembly = assembly_dsl.emit();
+    // let assembly = assembly_dsl.emit();
 
-    fs::write("./out.s", assembly).unwrap();
+    // fs::write("./out.s", assembly).unwrap();
 }

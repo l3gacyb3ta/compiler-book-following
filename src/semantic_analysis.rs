@@ -1,12 +1,15 @@
 use partial_application::partial;
 
 use crate::parser::{
-    Block, BlockItem, Declaration, Expression, Factor, ForInit, Function, Program, Statement,
+    Block, BlockItem, Declaration, Expression, Factor, ForInit, FunctionDeclaration, Program,
+    Statement, VariableDeclaration,
 };
+use std::env::var;
+use std::fmt::format;
 use std::{collections::HashMap, error::Error};
 
-/// `user_defined_name -> (Unique_name, from_current_scope)`
-type VariableMap = HashMap<String, (String, bool)>;
+/// `user_defined_name -> (Unique_name, from_current_scope, externally linked)`
+type VariableMap = HashMap<String, (String, bool, bool)>;
 
 pub type LoopLabel = String;
 
@@ -26,8 +29,8 @@ trait CopyableMap {
 impl CopyableMap for VariableMap {
     fn copy_map(&self) -> Self {
         let mut out = HashMap::new();
-        for (user_def, (unique, _)) in self.iter() {
-            out.insert(user_def.clone(), (unique.clone(), false));
+        for (user_def, (unique, _, ext_linked)) in self.iter() {
+            out.insert(user_def.clone(), (unique.clone(), false, *ext_linked));
         }
 
         return out;
@@ -42,32 +45,89 @@ fn get_temporary(descriptor: &str) -> String {
     return format!("{}-{}-sem-an", descriptor, counter);
 }
 
+fn resolve_param(
+    param: String,
+    identifier_map: &mut VariableMap,
+) -> Result<String, Box<dyn Error>> {
+    if identifier_map.contains_key(&param) {
+        Err(format!("Parameter duplicate defintion of {}", param).into())
+    } else {
+        let new_ident = get_temporary(&format!("{}.param", param));
+
+        identifier_map.insert(param, (new_ident.clone(), true, false));
+
+        Ok(new_ident)
+    }
+}
+
 fn resolve_declaration(
     declaration: Declaration,
     variable_map: &mut VariableMap,
 ) -> Result<Declaration, Box<dyn Error>> {
-    if variable_map.contains_key(&declaration.identifier)
-        && variable_map.get(&declaration.identifier).unwrap().1
-    {
-        return Err(format!("Duplicate declaration of {}!", declaration.identifier).into());
+    match declaration {
+        Declaration::FunDecl(function_declaration) => {
+            if variable_map.contains_key(&function_declaration.identifier.clone()) {
+                let prev_entry = variable_map
+                    .get(&function_declaration.identifier.clone())
+                    .unwrap();
+                if prev_entry.1 && !prev_entry.2 {
+                    return Err(format!(
+                        "Duplicate declaration of {}!",
+                        function_declaration.identifier
+                    )
+                    .into());
+                };
+            } else {
+                variable_map.insert(
+                    function_declaration.identifier.clone(),
+                    (function_declaration.identifier.clone(), true, true),
+                );
+            }
+
+            let mut inner_map = variable_map.copy_map();
+
+            let mut new_params = vec![];
+            for param in function_declaration.params {
+                new_params.push(resolve_param(param, &mut inner_map)?);
+            }
+
+            let new_body = match function_declaration.body {
+                Some(body) => Some(resolve_block(body, &mut inner_map)?),
+                None => None,
+            };
+
+            Ok(Declaration::FunDecl(FunctionDeclaration {
+                identifier: function_declaration.identifier.clone(),
+                params: new_params,
+                body: new_body,
+            }))
+        }
+
+        Declaration::VarDecl(declaration) => {
+            if variable_map.contains_key(&declaration.identifier)
+                && variable_map.get(&declaration.identifier).unwrap().1
+            {
+                return Err(format!("Duplicate declaration of {}!", declaration.identifier).into());
+            }
+
+            let temporary_name = get_temporary(&declaration.identifier);
+            variable_map.insert(
+                declaration.identifier.clone(),
+                (temporary_name.clone(), true, false),
+            );
+
+            let mut init = declaration.init;
+
+            if init.is_some() {
+                init = Some(resolve_exp(init.unwrap(), variable_map)?);
+            }
+
+            Ok(Declaration::VarDecl(VariableDeclaration {
+                identifier: temporary_name,
+                init: init,
+            }))
+        }
     }
-
-    let temporary_name = get_temporary(&declaration.identifier);
-    variable_map.insert(
-        declaration.identifier.clone(),
-        (temporary_name.clone(), true),
-    );
-
-    let mut init = declaration.init;
-
-    if init.is_some() {
-        init = Some(resolve_exp(init.unwrap(), variable_map)?);
-    }
-
-    Ok(Declaration {
-        identifier: temporary_name,
-        init: init,
-    })
 }
 
 pub fn resolve_exp(
@@ -122,6 +182,24 @@ pub fn resolve_exp(
             true_e: resolve_exp(true_e, variable_map)?,
             false_e: resolve_exp(false_e, variable_map)?,
         })),
+        Expression::FunctionCall { ident, args } => {
+            if variable_map.contains_key(&ident) {
+                let new_function_name = variable_map.get(&ident).unwrap().0.clone();
+                let mut new_args = vec![];
+
+                for arg in args {
+                    new_args.push(*resolve_exp(Box::new(arg), variable_map)?);
+                }
+
+                Ok(Box::new(Expression::FunctionCall {
+                    ident: new_function_name,
+                    args: new_args,
+                }))
+            } else {
+                println!("{:#?}", variable_map);
+                Err(format!("Undeclared function {}!", ident).into())
+            }
+        }
     }
 }
 
@@ -271,51 +349,54 @@ fn resolve_block(block: Block, variable_map: &mut VariableMap) -> Result<Block, 
 pub fn semantically_analyze(program: Program) -> Program {
     let mut variable_map = HashMap::new();
 
-    Program {
-        functions: program
-            .functions
-            .iter()
-            .map(partial!(sem_an_function => &mut variable_map, _))
-            .map(label_function)
-            .collect(),
+    let mut functions = vec![];
+    for function in program.functions.iter() {
+        let function = sem_an_function(&mut variable_map, function);
+        let function = label_function(function);
+
+        functions.push(function);
+    }
+
+    Program { functions }
+}
+
+fn sem_an_function(
+    variable_map: &mut VariableMap,
+    function: &FunctionDeclaration,
+) -> FunctionDeclaration {
+
+    if let Declaration::FunDecl(function) =
+        resolve_declaration(Declaration::FunDecl(function.clone()), variable_map).unwrap()
+    {
+        return function;
+    } else {
+        unreachable!()
     }
 }
 
-fn sem_an_function(variable_map: &mut VariableMap, function: &Function) -> Function {
-    Function {
+fn label_function(function: FunctionDeclaration) -> FunctionDeclaration {
+    FunctionDeclaration {
         identifier: function.clone().identifier,
-        body: function
-            .body
-            .iter()
-            .map(partial!(sem_an_body => variable_map, _))
-            .collect(),
-    }
-}
-
-fn label_function(function: Function) -> Function {
-    Function {
-        identifier: function.clone().identifier,
-        body: function
-            .body
-            .iter()
-            .map(|item| match item {
-                BlockItem::Statement(statement) => {
-                    BlockItem::Statement(label_loop_statement(statement.clone(), None).unwrap())
-                }
-                BlockItem::Declaration(declaration) => BlockItem::Declaration(declaration.clone()),
-            })
-            .collect(),
-    }
-}
-
-fn sem_an_body(variable_map: &mut VariableMap, block_item: &BlockItem) -> BlockItem {
-    match block_item {
-        BlockItem::Statement(statement) => {
-            BlockItem::Statement(resolve_statement(statement.clone(), variable_map).unwrap())
-        }
-        BlockItem::Declaration(declaration) => {
-            BlockItem::Declaration(resolve_declaration(declaration.clone(), variable_map).unwrap())
-        }
+        params: function.params,
+        body: if function.body.is_some() {
+            Some(
+                function
+                    .body
+                    .unwrap()
+                    .iter()
+                    .map(|item| match item {
+                        BlockItem::Statement(statement) => BlockItem::Statement(
+                            label_loop_statement(statement.clone(), None).unwrap(),
+                        ),
+                        BlockItem::Declaration(declaration) => {
+                            BlockItem::Declaration(declaration.clone())
+                        }
+                    })
+                    .collect(),
+            )
+        } else {
+            None
+        },
     }
 }
 
@@ -327,7 +408,11 @@ fn annotate(statement: Statement, new_label: LoopLabel) -> Statement {
             cond,
             body,
             label: _,
-        } => Statement::While { cond, body, label: new_label },
+        } => Statement::While {
+            cond,
+            body,
+            label: new_label,
+        },
         Statement::DoWhile {
             body,
             condition,
@@ -350,10 +435,14 @@ fn label_loop_statement(
             if current_label.is_none() {
                 return Err("Break statement outside of loop!".into());
             };
-            
+
             Ok(annotate(statement, current_label.unwrap()))
         }
-        Statement::While { cond, body, label: _ } => {
+        Statement::While {
+            cond,
+            body,
+            label: _,
+        } => {
             let new_label = get_new_label();
             let labeled_body = label_loop_statement(*body, Some(new_label.clone()))?;
             let labeled_statement = Statement::While {

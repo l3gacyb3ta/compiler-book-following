@@ -28,6 +28,8 @@ pub enum Token {
     AssignmentDivision,
     AssignmentModulo,
 
+    Comma,
+
     Exclamation,
     And,
     Or,
@@ -121,6 +123,8 @@ pub fn tokenize(string: &str) -> Vec<Token> {
     let question = re!(r"^\?");
     let colon = re!("^:");
 
+    let comma = re!("^,");
+
     let do_t = re!("^do");
     let while_t = re!("^while");
     let for_t = re!("^for");
@@ -156,6 +160,8 @@ pub fn tokenize(string: &str) -> Vec<Token> {
         (else_t, "else"),
         (question, "question"),
         (colon, "colon"),
+
+        (comma, "comma"),
 
         (exlm, "exlm"),
         (and, "and"),
@@ -228,6 +234,8 @@ pub fn tokenize(string: &str) -> Vec<Token> {
             "slash" => Token::Slash,
             "percent" => Token::Percent,
             "ass" => Token::Assignment,
+
+            "comma" => Token::Comma,
 
             "asspls" => Token::AssignmentAddition,
             "asssub" => Token::AssignmentSubtraction,

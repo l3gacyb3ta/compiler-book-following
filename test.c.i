@@ -1,7 +1,8 @@
+int foo(int a) {
+    int c = 30;
+    return c;
+}
 int main() {
-    int j = 0;
-    while (j < 10) {
-        j += 1;
-    }
-    return j;
+    int a = foo(10, 20);
+    return a;
 }
