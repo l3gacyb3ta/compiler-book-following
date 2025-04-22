@@ -589,7 +589,7 @@ fn token_in(token: Token, options: &Vec<Token>) -> bool {
     return false;
 }
 
-fn expect_multiple(tokens: &mut Vec<Token>, options: Vec<Token>) -> Token {
+pub fn expect_multiple(tokens: &mut Vec<Token>, options: Vec<Token>) -> Token {
     let token = tokens.pop();
     if token.is_none() {
         panic!("Expected one of {:?}, but found no more tokens.", options);

@@ -1,11 +1,7 @@
-use partial_application::partial;
-
 use crate::parser::{
     Block, BlockItem, Declaration, Expression, Factor, ForInit, FunctionDeclaration, Program,
     Statement, StorageClass, VariableDeclaration,
 };
-use std::env::var;
-use std::fmt::format;
 use std::{collections::HashMap, error::Error};
 
 /// `user_defined_name -> (Unique_name, from_current_scope, externally linked)`
@@ -412,7 +408,9 @@ pub fn semantically_analyze(program: Program) -> Program {
         }
     }
 
-    Program { declarations: decls }
+    Program {
+        declarations: decls,
+    }
 }
 
 fn sem_an_function(

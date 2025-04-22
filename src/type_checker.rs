@@ -1,8 +1,8 @@
-use std::{collections::HashMap, error::Error, iter, os::linux::raw::stat};
+use std::{collections::HashMap, error::Error};
 
 use crate::parser::{
-    Block, BlockItem, Declaration, Expression, Factor, ForInit, FunctionDeclaration, Identifier,
-    Program, Statement, StorageClass, VariableDeclaration,
+    Block, BlockItem, Declaration, Expression, Factor, ForInit, FunctionDeclaration, Program,
+    Statement, StorageClass, VariableDeclaration,
 };
 
 #[derive(PartialEq, Clone, Copy, Debug)]
@@ -126,7 +126,7 @@ fn typecheck_variable_declaration(
         }
 
         if symbols.contains_key(&decl.identifier) {
-            let (old_type, old_attrs) = symbols.get(&decl.identifier).unwrap();
+            let (old_type, _old_attrs) = symbols.get(&decl.identifier).unwrap();
 
             if *old_type != Type::Int {
                 return Err("Function redeclared as variable".into());
@@ -181,7 +181,7 @@ fn typecheck_file_scope_variable_declaration(
 ) -> Result<(), Box<dyn Error>> {
     let mut initial_value = InitialValue::Tentative;
 
-    decl.init.is_some_and(|i| {
+    let _ = decl.init.is_some_and(|i| {
         if let Expression::Factor(Factor::Constant(value)) = *i {
             initial_value = InitialValue::Initial(value);
         } else {
@@ -283,14 +283,18 @@ fn typecheck_statement(statement: Statement, symbols: &mut Symbols) -> Result<()
         }
         Statement::Compound(block_items) => typecheck_block(block_items, symbols),
         Statement::Null | Statement::Break(_) | Statement::Continue(_) => Ok(()),
-        Statement::While { cond, body, label } => {
+        Statement::While {
+            cond,
+            body,
+            label: _,
+        } => {
             typecheck_exp(cond, symbols)?;
             typecheck_statement(*body, symbols)
         }
         Statement::DoWhile {
             body,
             condition,
-            label,
+            label: _,
         } => {
             typecheck_exp(condition, symbols)?;
             typecheck_statement(*body, symbols)
@@ -300,7 +304,7 @@ fn typecheck_statement(statement: Statement, symbols: &mut Symbols) -> Result<()
             condition,
             post,
             body,
-            label,
+            label: _,
         } => {
             match init {
                 ForInit::InitDecl(declaration) => typecheck_declaration(declaration, symbols)?,

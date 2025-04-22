@@ -122,11 +122,8 @@ impl From<Val> for Operand {
 impl Operand {
     pub fn in_memory(&self) -> bool {
         match self {
-            Operand::Imm(_) |
-            Operand::Register(_) => false,
-            Operand::Pseudo(_) |
-            Operand::Stack(_) |
-            Operand::Data(_) => true,
+            Operand::Imm(_) | Operand::Register(_) => false,
+            Operand::Pseudo(_) | Operand::Stack(_) | Operand::Data(_) => true,
         }
     }
 }
