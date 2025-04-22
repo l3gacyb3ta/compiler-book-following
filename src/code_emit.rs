@@ -76,6 +76,9 @@ impl CodeEmission for ABinOp {
             ABinOp::Add => "addl",
             ABinOp::Sub => "subl",
             ABinOp::Mult => "imull",
+            ABinOp::And => "andl",
+            ABinOp::Or => "orl",
+            ABinOp::Xor => "xorl",
         }
         .to_owned()
     }

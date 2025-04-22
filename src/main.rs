@@ -38,10 +38,10 @@ fn main() {
     println!("{:#?}\n--------", program);
 
     let program_analyzed = semantic_analysis::semantically_analyze(program);
-    
-    let symbols = type_checker::typecheck_program(&program_analyzed);
 
     println!("{:#?}\n--------", program_analyzed);
+    
+    let symbols = type_checker::typecheck_program(&program_analyzed);
 
     println!("{:#?}\n--------", symbols);
 

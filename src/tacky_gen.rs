@@ -87,6 +87,9 @@ pub enum TBinOp {
     LessOrEqual,
     GreaterThan,
     GreaterOrEqual,
+    BitwiseAnd,
+    BitwiseOr,
+    BitwiseXor
 }
 
 #[derive(Clone, Debug)]
@@ -150,6 +153,9 @@ impl TProgram {
                 BinOp::LessOrEqual => TBinOp::LessOrEqual,
                 BinOp::GreaterThan => TBinOp::GreaterThan,
                 BinOp::GreaterOrEqual => TBinOp::GreaterOrEqual,
+                BinOp::BitwiseAnd => TBinOp::BitwiseAnd,
+                BinOp::BitwiseOr => TBinOp::BitwiseOr,
+                BinOp::BitwiseXor => TBinOp::BitwiseXor,
                 BinOp::And | BinOp::Or => unreachable!("And and or shouldn't be here."),
             }
         }
@@ -589,7 +595,9 @@ impl TProgram {
             //hack to support functions with no returns, if it already has a return, this'll be ignored
             instructions.push(TInstruction::Return(Val::Constant(0)));
 
-            let global = if let IdentifierAttrs::FunAttr { defined: _, global } = symbols.get(&func.identifier).unwrap().1 {
+            let global = if let IdentifierAttrs::FunAttr { defined: _, global } =
+                symbols.get(&func.identifier).unwrap().1
+            {
                 global
             } else {
                 false
@@ -599,7 +607,7 @@ impl TProgram {
                 identifier: func.identifier,
                 params: func.params,
                 instructions,
-                global
+                global,
             })
         }
 
@@ -611,7 +619,9 @@ impl TProgram {
             match declaration {
                 Declaration::FunDecl(fun_decl) => {
                     if fun_decl.body.is_some() {
-                        top_levls.push(TopLevel::Function(function_to_afunction(fun_decl, symbols).unwrap()))
+                        top_levls.push(TopLevel::Function(
+                            function_to_afunction(fun_decl, symbols).unwrap(),
+                        ))
                     }
                 }
                 Declaration::VarDecl(_var_decl) => {

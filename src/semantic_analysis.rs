@@ -118,6 +118,8 @@ fn resolve_declaration(
                 }
             }
 
+            let unique_name = get_temporary(&decl.identifier);
+
             if decl
                 .storage_class
                 .is_some_and(|s| s == StorageClass::Extern)
@@ -137,9 +139,7 @@ fn resolve_declaration(
                     storage_class: decl.storage_class,
                 }));
             } else {
-                let unique_name = get_temporary(&decl.identifier);
-
-                identifier_map.insert(decl.identifier.clone(), (unique_name, true, false));
+                identifier_map.insert(decl.identifier.clone(), (unique_name.clone(), true, false));
             }
 
             let mut init = decl.init.clone();
@@ -147,8 +147,6 @@ fn resolve_declaration(
             if init.is_some() {
                 init = Some(resolve_exp(init.unwrap(), identifier_map)?);
             }
-
-            let unique_name = get_temporary(&decl.identifier);
 
             Ok(Declaration::VarDecl(VariableDeclaration {
                 identifier: unique_name,

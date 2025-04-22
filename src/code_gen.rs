@@ -108,6 +108,9 @@ pub enum ABinOp {
     Add,
     Sub,
     Mult,
+    And,
+    Or,
+    Xor,
 }
 
 impl From<Val> for Operand {
@@ -151,6 +154,9 @@ impl AProgram {
                 TBinOp::Add => ABinOp::Add,
                 TBinOp::Subtract => ABinOp::Sub,
                 TBinOp::Multiply => ABinOp::Mult,
+                TBinOp::BitwiseAnd => ABinOp::And,
+                TBinOp::BitwiseOr => ABinOp::Or,
+                TBinOp::BitwiseXor => ABinOp::Xor,
                 _ => unreachable!(),
             }
         }
@@ -277,7 +283,12 @@ impl AProgram {
                     dst,
                 } => {
                     match binary_op.clone() {
-                        TBinOp::Add | TBinOp::Subtract | TBinOp::Multiply => {
+                        TBinOp::Add
+                        | TBinOp::Subtract
+                        | TBinOp::Multiply
+                        | TBinOp::BitwiseAnd
+                        | TBinOp::BitwiseOr
+                        | TBinOp::BitwiseXor => {
                             // Simple Binary Case
 
                             vec![
@@ -525,7 +536,7 @@ impl AProgram {
                     }
                 }
                 Instruction::Binary { src, dst, op } => match op {
-                    ABinOp::Add | ABinOp::Sub => {
+                    ABinOp::Add | ABinOp::Sub | ABinOp::And | ABinOp::Or | ABinOp::Xor => {
                         if src.in_memory() && dst.in_memory() {
                             output.push(Instruction::Mov {
                                 src,

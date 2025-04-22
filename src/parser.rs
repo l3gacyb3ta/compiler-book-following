@@ -145,6 +145,10 @@ pub enum BinOp {
     LessOrEqual,
     GreaterThan,
     GreaterOrEqual,
+
+    BitwiseAnd,
+    BitwiseOr,
+    BitwiseXor
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -224,6 +228,9 @@ impl Parsable for BinOp {
             Token::GreaterThan => BinOp::GreaterThan,
             Token::Equality => BinOp::Equal,
             Token::NotEquality => BinOp::NotEqual,
+            Token::BitwiseAnd => BinOp::BitwiseAnd,
+            Token::BitwiseOr => BinOp::BitwiseOr,
+            Token::BitwiseXor => BinOp::BitwiseXor,
             x => panic!("Unknown binary op {:?}", x),
         }
     }
@@ -232,19 +239,22 @@ impl Parsable for BinOp {
 impl BinOp {
     pub fn precedance(&self) -> i32 {
         match self {
-            BinOp::Add => 45,
-            BinOp::Subtract => 45,
             BinOp::Multiply => 50,
             BinOp::Divide => 50,
             BinOp::Modulo => 50,
-            BinOp::And => 10,
-            BinOp::Or => 5,
-            BinOp::Equal => 30,
-            BinOp::NotEqual => 30,
+            BinOp::Add => 45,
+            BinOp::Subtract => 45,
             BinOp::LessThan => 35,
             BinOp::LessOrEqual => 35,
             BinOp::GreaterThan => 35,
             BinOp::GreaterOrEqual => 35,
+            BinOp::Equal => 30,
+            BinOp::NotEqual => 30,
+            BinOp::BitwiseAnd => 20,
+            BinOp::BitwiseXor => 19,
+            BinOp::BitwiseOr => 18,
+            BinOp::And => 10,
+            BinOp::Or => 5,
         }
     }
 
@@ -266,12 +276,18 @@ impl BinOp {
 
             Token::QuestionMark => 3,
 
-            Token::Assignment => 1,
+            Token::BitwiseXor |
+            Token::BitwiseOr |
+            Token::BitwiseAnd => 2,
 
+            Token::Assignment => 1,
             Token::AssignmentAddition
             | Token::AssignmentSubtraction
             | Token::AssignmentMultiplication
             | Token::AssignmentModulo
+            | Token::AssignmentAnd
+            | Token::AssignmentXor
+            | Token::AssignmentOr
             | Token::AssignmentDivision => 1,
             _ => -1,
         }
@@ -296,8 +312,14 @@ impl BinOp {
             || token_is(next_token, &Token::AssignmentDivision)
             || token_is(next_token, &Token::AssignmentSubtraction)
             || token_is(next_token, &Token::AssignmentModulo)
+            || token_is(next_token, &Token::AssignmentAnd)
+            || token_is(next_token, &Token::AssignmentOr)
+            || token_is(next_token, &Token::AssignmentXor)
             || token_is(next_token, &Token::Assignment)
             || token_is(next_token, &Token::QuestionMark)
+            || token_is(next_token, &Token::BitwiseAnd)
+            || token_is(next_token, &Token::BitwiseOr)
+            || token_is(next_token, &Token::BitwiseXor)
     }
 }
 

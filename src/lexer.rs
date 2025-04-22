@@ -27,6 +27,9 @@ pub enum Token {
     AssignmentMultiplication,
     AssignmentDivision,
     AssignmentModulo,
+    AssignmentAnd,
+    AssignmentOr,
+    AssignmentXor,
 
     Comma,
 
@@ -60,7 +63,11 @@ pub enum Token {
     If,
     Else,
     QuestionMark,
-    Colon
+    Colon,
+
+    BitwiseAnd,
+    BitwiseOr,
+    BitwiseXor
 }
 
 impl Token {
@@ -71,6 +78,9 @@ impl Token {
             Self::AssignmentDivision => Some(BinOp::Divide),
             Self::AssignmentMultiplication => Some(BinOp::Multiply),
             Self::AssignmentModulo => Some(BinOp::Modulo),
+            Self::AssignmentAnd => Some(BinOp::BitwiseAnd),
+            Self::AssignmentXor => Some(BinOp::BitwiseXor),
+            Self::AssignmentOr => Some(BinOp::BitwiseOr),
             
             _ => None
         }
@@ -104,6 +114,10 @@ pub fn tokenize(string: &str) -> Vec<Token> {
     let percent = re!("^%");
     let ass = re!("^=");
 
+    let bitwise_and = re!("^&");
+    let bitwise_or = re!(r"^\|");
+    let bitwise_xor = re!(r"^\^");
+
     let exlm = re!("^!");
     let and = re!("^&&");
     let or = re!(r"^\|\|");
@@ -119,6 +133,9 @@ pub fn tokenize(string: &str) -> Vec<Token> {
     let asssub = re!(r"^-=");
     let assdiv = re!(r"^/=");
     let assmod = re!(r"^%=");
+    let assand = re!(r"^&=");
+    let assxor = re!(r"^\^=");
+    let assor = re!(r"^\|=");
 
     let if_t = re!("^if");
     let else_t = re!("^else");
@@ -157,6 +174,9 @@ pub fn tokenize(string: &str) -> Vec<Token> {
         (assmul, "assmul"),
         (assdiv, "assdiv"),
         (assmod, "assmod"),
+        (assand, "assand"),
+        (assxor, "assxor"),
+        (assor, "assor"),
 
         (if_t, "if"),
         (else_t, "else"),
@@ -183,6 +203,9 @@ pub fn tokenize(string: &str) -> Vec<Token> {
         (break_t, "break"),
         (continue_t, "continue"),
         
+        (bitwise_and, "bitwise_and"),
+        (bitwise_or, "bitwise_or"),
+        (bitwise_xor, "bitwise_xor"),
     ];
 
     let mut output = vec![];
@@ -243,6 +266,9 @@ pub fn tokenize(string: &str) -> Vec<Token> {
             "asssub" => Token::AssignmentSubtraction,
             "assmul" => Token::AssignmentMultiplication,
             "assdiv" => Token::AssignmentDivision,
+            "assand" => Token::AssignmentAnd,
+            "assxor" => Token::AssignmentXor,
+            "assor" => Token::AssignmentOr,
 
             "exlm" => Token::Exclamation,
             "and" => Token::And,
@@ -258,6 +284,10 @@ pub fn tokenize(string: &str) -> Vec<Token> {
             "else" => Token::Else,
             "colon" => Token::Colon,
             "question" => Token::QuestionMark,
+
+            "bitwise_and" => Token::BitwiseAnd,
+            "bitwise_or" => Token::BitwiseOr,
+            "bitwise_xor" => Token::BitwiseXor,
 
             "ident" => {
                 //TODO: less hacky way of this
