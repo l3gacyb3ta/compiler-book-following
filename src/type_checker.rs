@@ -10,7 +10,7 @@ pub enum Type  {
 }
 
 /// (type, already_defined)
-type Symbols = HashMap<String, (Type, bool)>;
+pub type Symbols = HashMap<String, (Type, bool)>;
 
 pub fn typecheck_program(program: &Program) -> Symbols {
     let mut symbols = HashMap::new();

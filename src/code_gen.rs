@@ -1,15 +1,18 @@
+use regex::bytes;
+
 use crate::tacky_gen::{Identifier, TBinOp, TFunction, TInstruction, TProgram, TUnaryOp, Val};
 use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
 pub struct AProgram {
-    pub function_definition: AFunction,
+    pub functions: Vec<AFunction>,
 }
 
 #[derive(Clone, Debug)]
 pub struct AFunction {
     pub identifier: String,
     pub instructions: Vec<Instruction>,
+    pub stack_size: i32,
 }
 
 #[derive(Clone, Debug)]
@@ -44,6 +47,9 @@ pub enum Instruction {
     },
     Label(Identifier),
     AllocateStack(usize),
+    DeallocateStack(usize),
+    Push(Operand),
+    Call(Identifier),
     Ret,
 }
 
@@ -68,7 +74,12 @@ pub enum Operand {
 #[derive(Clone, Copy, Debug)]
 pub enum Reg {
     AX,
+    CX,
     DX,
+    DI,
+    SI,
+    R8,
+    R9,
     R10,
     R11,
 }
@@ -124,6 +135,78 @@ impl From<TProgram> for AProgram {
 
         fn tacky_instruction_to_assembly(inst: TInstruction) -> Vec<Instruction> {
             match inst {
+                TInstruction::FunCall {
+                    fun_name,
+                    arguments,
+                    dst,
+                } => {
+                    let mut out = vec![];
+                    let arg_registers = vec![Reg::DI, Reg::SI, Reg::DX, Reg::CX, Reg::R8, Reg::R9];
+
+                    let mut register_args = vec![];
+                    let mut stack_args = vec![];
+                    let mut stack_padding = 0;
+
+                    for (indx, arg) in arguments.iter().enumerate() {
+                        if indx < 6 {
+                            // register args
+                            register_args.push((arg.clone(), arg_registers[indx]));
+                        } else {
+                            // stack args
+                            let indx = indx + 1;
+
+                            stack_padding = if indx % 2 == 1 { 8 } else { 0 };
+
+                            if stack_padding != 0 {
+                                out.push(Instruction::AllocateStack(stack_padding))
+                            }
+
+                            stack_args.push(arg.clone());
+                        }
+                    }
+
+                    for (tacky_arg, reg) in register_args {
+                        let assembly_arg: Operand = tacky_arg.into();
+
+                        out.push(Instruction::Mov {
+                            src: assembly_arg,
+                            dst: reg.into(),
+                        })
+                    }
+
+                    stack_args.reverse();
+
+                    for tacky_arg in stack_args.clone() {
+                        let assembly_arg: Operand = tacky_arg.into();
+
+                        match assembly_arg {
+                            Operand::Imm(_) | Operand::Register(_) => {
+                                out.push(Instruction::Push(assembly_arg))
+                            }
+                            other => {
+                                out.push(Instruction::Mov {
+                                    src: other,
+                                    dst: Reg::AX.into(),
+                                });
+                                out.push(Instruction::Push(Reg::AX.into()));
+                            }
+                        }
+                    }
+
+                    out.push(Instruction::Call(fun_name));
+
+                    let bytes_to_remove = 8 * stack_args.len() + stack_padding;
+
+                    if bytes_to_remove != 0 {
+                        out.push(Instruction::DeallocateStack(bytes_to_remove));
+                    }
+
+                    let assembly_dst = dst.into();
+
+                    out.push(Instruction::Mov{ src: Reg::AX.into(), dst: assembly_dst });
+
+                    return out;
+                }
                 TInstruction::Return(val) => {
                     vec![
                         Instruction::Mov {
@@ -279,7 +362,13 @@ impl From<TProgram> for AProgram {
             let mut identifier_hashmap: HashMap<String, usize> = HashMap::new();
             let mut identifier_counter = 0;
 
-            fn fix_operand_b4(op: Operand, offset_map: &mut Vec<i32>, offset: &mut i32, ident_map: &mut HashMap<String, usize>, counter: &mut usize) -> Operand {
+            fn fix_operand_b4(
+                op: Operand,
+                offset_map: &mut Vec<i32>,
+                offset: &mut i32,
+                ident_map: &mut HashMap<String, usize>,
+                counter: &mut usize,
+            ) -> Operand {
                 // The operand's unique, sequential ID is used to not have to use a hashmap and instead use a list
                 // ugh fuck me why'd I do this
                 match op {
@@ -292,7 +381,6 @@ impl From<TProgram> for AProgram {
 
                             *counter
                         };
-
 
                         if i + 1 > offset_map.len() {
                             offset_map.push(*offset);
@@ -333,6 +421,7 @@ impl From<TProgram> for AProgram {
                             src1: partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter)(src1, &mut offset_map, &mut offset),
                             src2: partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter)(src2, &mut offset_map, &mut offset),
                         },
+                        Instruction::Push(op) => Instruction::Push(partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter)(op, &mut offset_map, &mut offset)),
                         x => x,
                     })
                     .collect(),
@@ -341,10 +430,11 @@ impl From<TProgram> for AProgram {
         }
 
         /// allocate stack space and remove illegal moves, as well as clean up the pseudo identifiers
-        fn cleanup(instructions: Vec<Instruction>) -> Vec<Instruction> {
+        fn cleanup(instructions: Vec<Instruction>, params: usize) -> (Vec<Instruction>, usize) {
             let (mut instructions, final_offset) = replace_pseudo(instructions);
             // allocate the actual space on the stack. The final offset will always be +4 too big.
-            let mut allocate = vec![Instruction::AllocateStack(final_offset.abs() as usize - 4)];
+            let space = (final_offset.abs() as usize - 4) + (4 * params);
+            let mut allocate = vec![Instruction::AllocateStack(space)];
             allocate.append(&mut instructions);
 
             let mut output = vec![];
@@ -447,11 +537,28 @@ impl From<TProgram> for AProgram {
                 otherwise => output.push(otherwise),
             });
 
-            output
+            return (output, space);
         }
 
         fn function_to_afunction(func: TFunction) -> AFunction {
             let mut instructions: Vec<Instruction> = vec![];
+
+            let arg_registers = vec![Reg::DI, Reg::SI, Reg::DX, Reg::CX, Reg::R8, Reg::R9];
+            for (id, param) in func.params.iter().enumerate() {
+                let param = param.clone();
+
+                let src: Operand = if id < 7 {
+                    arg_registers[id].into()
+                } else {
+                    let id = id as i32;
+                    Operand::Stack(((id - 6) * 8) + 8)
+                };
+
+                instructions.push(Instruction::Mov {
+                    src,
+                    dst: Operand::Pseudo(param),
+                })
+            }
 
             for inst in func.instructions.clone().into_iter() {
                 let mut new = tacky_instruction_to_assembly(inst);
@@ -459,16 +566,25 @@ impl From<TProgram> for AProgram {
                 instructions.append(&mut new);
             }
 
+            let (instructions, size) = cleanup(instructions, func.params.len());
+
             AFunction {
                 identifier: func.identifier,
-                instructions: cleanup(instructions),
+                instructions,
+                stack_size: size.try_into().unwrap(),
             }
         }
 
-        let function: TFunction = program.function_definition;
+        // let function: TFunction = program.function_definition;
+
+        let mut  a_functions = vec![];
+
+        for function in program.function_definition {
+            a_functions.push(function_to_afunction(function));
+        }
 
         AProgram {
-            function_definition: function_to_afunction(function),
+            functions: a_functions,
         }
     }
 }

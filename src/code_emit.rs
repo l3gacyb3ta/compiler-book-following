@@ -1,18 +1,24 @@
 use crate::{
     code_gen::{ABinOp, AFunction, AProgram, AUnOp, CondCode, Instruction, Operand, Reg},
     tacky_gen::Identifier,
+    type_checker::Symbols,
 };
 
 pub trait CodeEmission {
-    fn emit(&self) -> String;
+    fn emit(&self, symbols: &Symbols) -> String;
 }
 
 impl CodeEmission for Reg {
-    fn emit(&self) -> String {
+    fn emit(&self, _: &Symbols) -> String {
         match self {
             Reg::AX => "%eax",
-            Reg::R10 => "%r10d",
             Reg::DX => "%edx",
+            Reg::CX => "%ecx",
+            Reg::DI => "%edi",
+            Reg::SI => "%esi",
+            Reg::R8 => "%r8d",
+            Reg::R9 => "%r9d",
+            Reg::R10 => "%r10d",
             Reg::R11 => "%r11d",
         }
         .to_owned()
@@ -32,10 +38,10 @@ impl Reg {
 }
 
 impl CodeEmission for Operand {
-    fn emit(&self) -> String {
+    fn emit(&self, s: &Symbols) -> String {
         match self {
             Operand::Imm(x) => format!("${}", x),
-            Operand::Register(reg) => reg.emit(),
+            Operand::Register(reg) => reg.emit(s),
             Operand::Pseudo(_) => unreachable!("Pseudo Operands shouldn't be Code Emitted"),
             Operand::Stack(x) => format!("{}(%rbp)", x),
         }
@@ -52,7 +58,7 @@ impl CodeEmission for Operand {
 // }
 
 impl CodeEmission for AUnOp {
-    fn emit(&self) -> String {
+    fn emit(&self, _: &Symbols) -> String {
         match self {
             AUnOp::Neg => "negl",
             AUnOp::Not => "notl",
@@ -62,7 +68,7 @@ impl CodeEmission for AUnOp {
 }
 
 impl CodeEmission for ABinOp {
-    fn emit(&self) -> String {
+    fn emit(&self, _: &Symbols) -> String {
         match self {
             ABinOp::Add => "addl",
             ABinOp::Sub => "subl",
@@ -73,7 +79,7 @@ impl CodeEmission for ABinOp {
 }
 
 impl CodeEmission for CondCode {
-    fn emit(&self) -> String {
+    fn emit(&self, _: &Symbols) -> String {
         match self {
             CondCode::E => "e",
             CondCode::NE => "ne",
@@ -92,39 +98,53 @@ fn ident_to_string(ident: Identifier) -> String {
 }
 
 impl CodeEmission for Instruction {
-    fn emit(&self) -> String {
+    fn emit(&self, s: &Symbols) -> String {
         match self {
-            Instruction::Mov { src, dst } => format!("movl\t{}, {}", src.emit(), dst.emit()),
+            Instruction::Mov { src, dst } => format!("movl\t{}, {}", src.emit(s), dst.emit(s)),
             Instruction::Ret => "movq\t%rbp, %rsp
 \tpopq\t%rbp
 \tret"
                 .to_owned(),
-            Instruction::Unary { op, operand } => format!("{}\t{}", op.emit(), operand.emit()),
+            Instruction::Unary { op, operand } => format!("{}\t{}", op.emit(s), operand.emit(s)),
             Instruction::AllocateStack(x) => format!("subq\t${}, %rsp", x),
             Instruction::Binary { op, src, dst } => {
-                format!("{}\t{}, {}", op.emit(), src.emit(), dst.emit())
+                format!("{}\t{}, {}", op.emit(s), src.emit(s), dst.emit(s))
             }
-            Instruction::Idiv(operand) => format!("idiv\t{}", operand.emit()),
+            Instruction::Idiv(operand) => format!("idiv\t{}", operand.emit(s)),
             Instruction::Cdq => "cdq".to_owned(),
-            Instruction::Cmp { src1, src2 } => format!("cmpl\t{}, {}", src1.emit(), src2.emit()),
+            Instruction::Cmp { src1, src2 } => format!("cmpl\t{}, {}", src1.emit(s), src2.emit(s)),
             Instruction::Jmp(label) => format!("jmp\t.L{}", ident_to_string(label.clone())),
             Instruction::JmpCC { cc, ident } => {
-                format!("j{}\t.L{}", cc.emit(), ident_to_string(ident.clone()))
+                format!("j{}\t.L{}", cc.emit(s), ident_to_string(ident.clone()))
             }
-            Instruction::SetCC { cc, src } => format!("set{}\t{}", cc.emit(), src.emit()),
+            Instruction::SetCC { cc, src } => format!("set{}\t{}", cc.emit(s), src.emit(s)),
             Instruction::Label(l) => format!(".L{}:", ident_to_string(l.clone())),
+            Instruction::DeallocateStack(amount) => format!("addq ${}, %rsp", amount),
+            Instruction::Push(operand) => format!("pushq {}", operand.emit(s)),
+            Instruction::Call(func) => format!(
+                "call {}",
+                if let Some((_, already_defined)) = s.get(&func.clone()) {
+                    if *already_defined {
+                        func.clone()
+                    } else {
+                        format!("{}@PLT", func)
+                    }
+                } else {
+                    unreachable!()
+                }
+            ), //TODO: Lookup in Symbol Table to be able to tell if we need @PLT.
         }
     }
 }
 
 impl CodeEmission for AFunction {
-    fn emit(&self) -> String {
+    fn emit(&self, s: &Symbols) -> String {
         let instructions = self
             .instructions
             .clone()
             .into_iter()
             .fold("".to_owned(), |acc, inst| {
-                format!("{}\n\t{}", acc, inst.emit())
+                format!("{}\n\t{}", acc, inst.emit(s))
             });
         format!(
             "{}:
@@ -138,12 +158,16 @@ impl CodeEmission for AFunction {
 
 impl CodeEmission for AProgram {
     #[inline]
-    fn emit(&self) -> String {
+    fn emit(&self, s: &Symbols) -> String {
         format!(
             ".globl main
 {}
 .section .note.GNU-stack,\"\",@progbits\n",
-            self.function_definition.emit()
+            self.functions
+                .iter()
+                .map(|f| { f.emit(s) })
+                .collect::<Vec<String>>()
+                .join("\n\n")
         )
     }
 }

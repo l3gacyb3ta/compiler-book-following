@@ -1,8 +1,6 @@
-int foo(int a, int b) {
-    int c = 30;
-    return c + a + b;
-}
+int putchar(int char);
 int main() {
-    int a = foo(10, 20);
-    return a;
+    putchar(33);
+    putchar(33);
+    return 0;
 }

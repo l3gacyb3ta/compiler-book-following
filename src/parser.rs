@@ -638,6 +638,7 @@ impl FunctionDeclaration {
         expect(tokens, Token::CloseParen);
 
         if !token_is(&peek(tokens), &Token::OpenBrace) {
+            expect(tokens, Token::Semicolon);
             return FunctionDeclaration {
                 identifier,
                 body: None,
@@ -687,6 +688,8 @@ impl Parsable for Program {
             
             functions.push(function);
         }
+
+        println!("{:#?}", tokens);
 
         Program {
             functions,
