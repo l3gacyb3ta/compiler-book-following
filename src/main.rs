@@ -45,11 +45,11 @@ fn main() {
 
     println!("{:#?}\n--------", symbols);
 
-    let tacky: TProgram = program_analyzed.into();
+    let tacky: TProgram = tacky_gen::ast_to_tacky(program_analyzed, &symbols);
 
     println!("{:#?}\n--------", tacky);
 
-    let assembly_dsl: AProgram = tacky.into();
+    let assembly_dsl: AProgram = AProgram::from(tacky, &symbols);
 
     println!("{:#?}", assembly_dsl);
 

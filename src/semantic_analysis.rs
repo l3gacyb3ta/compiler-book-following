@@ -2,7 +2,7 @@ use partial_application::partial;
 
 use crate::parser::{
     Block, BlockItem, Declaration, Expression, Factor, ForInit, FunctionDeclaration, Program,
-    Statement, VariableDeclaration,
+    Statement, StorageClass, VariableDeclaration,
 };
 use std::env::var;
 use std::fmt::format;
@@ -62,12 +62,12 @@ fn resolve_param(
 
 fn resolve_declaration(
     declaration: Declaration,
-    variable_map: &mut VariableMap,
+    identifier_map: &mut VariableMap,
 ) -> Result<Declaration, Box<dyn Error>> {
     match declaration {
         Declaration::FunDecl(function_declaration) => {
-            if variable_map.contains_key(&function_declaration.identifier.clone()) {
-                let prev_entry = variable_map
+            if identifier_map.contains_key(&function_declaration.identifier.clone()) {
+                let prev_entry = identifier_map
                     .get(&function_declaration.identifier.clone())
                     .unwrap();
                 if prev_entry.1 && !prev_entry.2 {
@@ -78,13 +78,13 @@ fn resolve_declaration(
                     .into());
                 };
             } else {
-                variable_map.insert(
+                identifier_map.insert(
                     function_declaration.identifier.clone(),
                     (function_declaration.identifier.clone(), true, true),
                 );
             }
 
-            let mut inner_map = variable_map.copy_map();
+            let mut inner_map = identifier_map.copy_map();
 
             let mut new_params = vec![];
             for param in function_declaration.params {
@@ -100,31 +100,64 @@ fn resolve_declaration(
                 identifier: function_declaration.identifier.clone(),
                 params: new_params,
                 body: new_body,
+                storage_class: function_declaration.storage_class,
             }))
         }
 
-        Declaration::VarDecl(declaration) => {
-            if variable_map.contains_key(&declaration.identifier)
-                && variable_map.get(&declaration.identifier).unwrap().1
-            {
-                return Err(format!("Duplicate declaration of {}!", declaration.identifier).into());
+        Declaration::VarDecl(decl) => {
+            if identifier_map.contains_key(&decl.identifier) {
+                let prev_entry = identifier_map.get(&decl.identifier).unwrap();
+
+                if prev_entry.1 {
+                    // from current scope
+                    if !(prev_entry.2
+                        && decl.storage_class.is_some()
+                        && decl.storage_class.unwrap() == StorageClass::Extern)
+                    {
+                        // has_linkage
+                        return Err(
+                            format!("Conflicting local definitions for {}.", prev_entry.0).into(),
+                        );
+                    }
+                }
             }
 
-            let temporary_name = get_temporary(&declaration.identifier);
-            variable_map.insert(
-                declaration.identifier.clone(),
-                (temporary_name.clone(), true, false),
-            );
+            if decl
+                .storage_class
+                .is_some_and(|s| s == StorageClass::Extern)
+            {
+                let unique_name = get_temporary(&decl.identifier);
+                identifier_map.insert(decl.identifier.clone(), (unique_name, true, true));
 
-            let mut init = declaration.init;
+                let mut init = None;
+
+                if decl.init.clone().is_some() {
+                    init = Some(resolve_exp(init.unwrap(), identifier_map)?);
+                }
+
+                return Ok(Declaration::VarDecl(VariableDeclaration {
+                    identifier: decl.identifier.clone(),
+                    init,
+                    storage_class: decl.storage_class,
+                }));
+            } else {
+                let unique_name = get_temporary(&decl.identifier);
+
+                identifier_map.insert(decl.identifier.clone(), (unique_name, true, false));
+            }
+
+            let mut init = decl.init.clone();
 
             if init.is_some() {
-                init = Some(resolve_exp(init.unwrap(), variable_map)?);
+                init = Some(resolve_exp(init.unwrap(), identifier_map)?);
             }
 
+            let unique_name = get_temporary(&decl.identifier);
+
             Ok(Declaration::VarDecl(VariableDeclaration {
-                identifier: temporary_name,
+                identifier: unique_name,
                 init: init,
+                storage_class: decl.storage_class,
             }))
         }
     }
@@ -346,25 +379,46 @@ fn resolve_block(block: Block, variable_map: &mut VariableMap) -> Result<Block, 
     Ok(out)
 }
 
+fn resolve_file_scope_variable_declaration(
+    decl: VariableDeclaration,
+    identifier_map: &mut VariableMap,
+) -> VariableDeclaration {
+    identifier_map.insert(
+        decl.clone().identifier,
+        (decl.clone().identifier, true, true),
+    );
+
+    return decl;
+}
+
 pub fn semantically_analyze(program: Program) -> Program {
-    let mut variable_map = HashMap::new();
+    let mut identifier_map = HashMap::new();
 
-    let mut functions = vec![];
-    for function in program.functions.iter() {
-        let function = sem_an_function(&mut variable_map, function);
-        let function = label_function(function);
+    let mut decls = vec![];
+    for declaration in program.declarations.iter() {
+        match declaration {
+            Declaration::FunDecl(decl) => {
+                let function = sem_an_function(&mut identifier_map, decl);
+                let function = label_function(function);
 
-        functions.push(function);
+                decls.push(Declaration::FunDecl(function))
+            }
+            Declaration::VarDecl(decl) => {
+                let variable =
+                    resolve_file_scope_variable_declaration(decl.clone(), &mut identifier_map);
+
+                decls.push(Declaration::VarDecl(variable))
+            }
+        }
     }
 
-    Program { functions }
+    Program { declarations: decls }
 }
 
 fn sem_an_function(
     variable_map: &mut VariableMap,
     function: &FunctionDeclaration,
 ) -> FunctionDeclaration {
-
     if let Declaration::FunDecl(function) =
         resolve_declaration(Declaration::FunDecl(function.clone()), variable_map).unwrap()
     {
@@ -397,6 +451,7 @@ fn label_function(function: FunctionDeclaration) -> FunctionDeclaration {
         } else {
             None
         },
+        storage_class: function.storage_class,
     }
 }
 

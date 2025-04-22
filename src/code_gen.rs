@@ -1,11 +1,22 @@
-use regex::bytes;
-
-use crate::tacky_gen::{Identifier, TBinOp, TFunction, TInstruction, TProgram, TUnaryOp, Val};
+use crate::{
+    tacky_gen::{Identifier, TBinOp, TFunction, TInstruction, TProgram, TUnaryOp, TopLevel, Val},
+    type_checker::{IdentifierAttrs, Symbols},
+};
 use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
 pub struct AProgram {
-    pub functions: Vec<AFunction>,
+    pub functions: Vec<ATopLevel>,
+}
+
+#[derive(Clone, Debug)]
+pub enum ATopLevel {
+    Func(AFunction),
+    StaticVariable {
+        name: Identifier,
+        global: bool,
+        init: i32,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -13,6 +24,7 @@ pub struct AFunction {
     pub identifier: String,
     pub instructions: Vec<Instruction>,
     pub stack_size: i32,
+    pub global: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -69,6 +81,7 @@ pub enum Operand {
     Register(Reg),
     Pseudo(String),
     Stack(i32),
+    Data(Identifier),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -106,6 +119,18 @@ impl From<Val> for Operand {
     }
 }
 
+impl Operand {
+    pub fn in_memory(&self) -> bool {
+        match self {
+            Operand::Imm(_) |
+            Operand::Register(_) => false,
+            Operand::Pseudo(_) |
+            Operand::Stack(_) |
+            Operand::Data(_) => true,
+        }
+    }
+}
+
 impl From<TUnaryOp> for AUnOp {
     fn from(unop: TUnaryOp) -> Self {
         match unop {
@@ -122,8 +147,8 @@ impl Into<Operand> for Reg {
     }
 }
 
-impl From<TProgram> for AProgram {
-    fn from(program: TProgram) -> Self {
+impl AProgram {
+    pub fn from(program: TProgram, symbols: &Symbols) -> Self {
         fn tacky_bin_to_assembly(binop: TBinOp) -> ABinOp {
             match binop {
                 TBinOp::Add => ABinOp::Add,
@@ -203,7 +228,10 @@ impl From<TProgram> for AProgram {
 
                     let assembly_dst = dst.into();
 
-                    out.push(Instruction::Mov{ src: Reg::AX.into(), dst: assembly_dst });
+                    out.push(Instruction::Mov {
+                        src: Reg::AX.into(),
+                        dst: assembly_dst,
+                    });
 
                     return out;
                 }
@@ -354,8 +382,11 @@ impl From<TProgram> for AProgram {
             }
         }
 
-        /// for each instruction that uses operands, replace them with an offset into the statck
-        fn replace_pseudo(instructions: Vec<Instruction>) -> (Vec<Instruction>, i32) {
+        /// for each instruction that uses operands, replace them with an offset into the statck or a data thing
+        fn replace_pseudo(
+            instructions: Vec<Instruction>,
+            symbols: &Symbols,
+        ) -> (Vec<Instruction>, i32) {
             let mut offset_map: Vec<i32> = vec![];
             let mut offset = -4;
 
@@ -368,11 +399,23 @@ impl From<TProgram> for AProgram {
                 offset: &mut i32,
                 ident_map: &mut HashMap<String, usize>,
                 counter: &mut usize,
+                symbols: &Symbols,
             ) -> Operand {
                 // The operand's unique, sequential ID is used to not have to use a hashmap and instead use a list
                 // ugh fuck me why'd I do this
                 match op {
                     Operand::Pseudo(i) => {
+                        // println!("{}", i);
+                        match symbols.get(&i) {
+                            Some((_, attr)) => match attr {
+                                IdentifierAttrs::StaticAttr { init: _, global: _ } => {
+                                    return Operand::Data(i)
+                                }
+                                _ => {}
+                            },
+                            None => {}
+                        }
+
                         let i = if ident_map.contains_key(&i) {
                             *ident_map.get(&i).unwrap()
                         } else {
@@ -398,30 +441,30 @@ impl From<TProgram> for AProgram {
                     .iter()
                     .map(|inst| match inst.clone() {
                         Instruction::Mov { src, dst } => Instruction::Mov {
-                            src: partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter)(src, &mut offset_map, &mut offset),
-                            dst: partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter)(dst, &mut offset_map, &mut offset),
+                            src: partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter, symbols)(src, &mut offset_map, &mut offset),
+                            dst: partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter, symbols)(dst, &mut offset_map, &mut offset),
                         },
                         Instruction::Unary { op, operand } => Instruction::Unary {
                             op: op,
-                            operand: partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter)(operand, &mut offset_map, &mut offset),
+                            operand: partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter, symbols)(operand, &mut offset_map, &mut offset),
                         },
                         Instruction::Binary { op, src, dst } => Instruction::Binary {
                             op: op,
-                            src: partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter)(src, &mut offset_map, &mut offset),
-                            dst: partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter)(dst, &mut offset_map, &mut offset),
+                            src: partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter, symbols)(src, &mut offset_map, &mut offset),
+                            dst: partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter, symbols)(dst, &mut offset_map, &mut offset),
                         },
                         Instruction::Idiv(op) => {
-                            Instruction::Idiv(partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter)(op, &mut offset_map, &mut offset))
+                            Instruction::Idiv(partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter, symbols)(op, &mut offset_map, &mut offset))
                         }
                         Instruction::SetCC { cc, src } => Instruction::SetCC {
                             cc,
-                            src: partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter)(src, &mut offset_map, &mut offset),
+                            src: partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter, symbols)(src, &mut offset_map, &mut offset),
                         },
                         Instruction::Cmp { src1, src2 } => Instruction::Cmp {
-                            src1: partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter)(src1, &mut offset_map, &mut offset),
-                            src2: partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter)(src2, &mut offset_map, &mut offset),
+                            src1: partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter, symbols)(src1, &mut offset_map, &mut offset),
+                            src2: partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter, symbols)(src2, &mut offset_map, &mut offset),
                         },
-                        Instruction::Push(op) => Instruction::Push(partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter)(op, &mut offset_map, &mut offset)),
+                        Instruction::Push(op) => Instruction::Push(partial!(fix_operand_b4 => _, _, _, &mut identifier_hashmap, &mut identifier_counter, symbols)(op, &mut offset_map, &mut offset)),
                         x => x,
                     })
                     .collect(),
@@ -430,8 +473,12 @@ impl From<TProgram> for AProgram {
         }
 
         /// allocate stack space and remove illegal moves, as well as clean up the pseudo identifiers
-        fn cleanup(instructions: Vec<Instruction>, params: usize) -> (Vec<Instruction>, usize) {
-            let (mut instructions, final_offset) = replace_pseudo(instructions);
+        fn cleanup(
+            instructions: Vec<Instruction>,
+            params: usize,
+            symbols: &Symbols,
+        ) -> (Vec<Instruction>, usize) {
+            let (mut instructions, final_offset) = replace_pseudo(instructions, symbols);
             // allocate the actual space on the stack. The final offset will always be +4 too big.
             let space = (final_offset.abs() as usize - 4) + (4 * params);
             let mut allocate = vec![Instruction::AllocateStack(space)];
@@ -467,10 +514,7 @@ impl From<TProgram> for AProgram {
                     }
                 }
                 Instruction::Mov { src, dst } => {
-                    if std::mem::discriminant(&src) == std::mem::discriminant(&dst)
-                        && std::mem::discriminant(&src)
-                            == std::mem::discriminant(&Operand::Stack(0))
-                    {
+                    if src.in_memory() && dst.in_memory() {
                         output.push(Instruction::Mov {
                             src,
                             dst: Operand::Register(Reg::R10),
@@ -485,10 +529,7 @@ impl From<TProgram> for AProgram {
                 }
                 Instruction::Binary { src, dst, op } => match op {
                     ABinOp::Add | ABinOp::Sub => {
-                        if std::mem::discriminant(&src) == std::mem::discriminant(&dst)
-                            && std::mem::discriminant(&src)
-                                == std::mem::discriminant(&Operand::Stack(0))
-                        {
+                        if src.in_memory() && dst.in_memory() {
                             output.push(Instruction::Mov {
                                 src,
                                 dst: Operand::Register(Reg::R10),
@@ -503,9 +544,7 @@ impl From<TProgram> for AProgram {
                         }
                     }
                     ABinOp::Mult => {
-                        if std::mem::discriminant(&dst.clone())
-                            == std::mem::discriminant(&Operand::Stack(0))
-                        {
+                        if dst.in_memory() {
                             output.push(Instruction::Mov {
                                 src: dst.clone(),
                                 dst: Reg::R11.into(),
@@ -540,7 +579,7 @@ impl From<TProgram> for AProgram {
             return (output, space);
         }
 
-        fn function_to_afunction(func: TFunction) -> AFunction {
+        fn function_to_afunction(func: TFunction, symbols: &Symbols) -> AFunction {
             let mut instructions: Vec<Instruction> = vec![];
 
             let arg_registers = vec![Reg::DI, Reg::SI, Reg::DX, Reg::CX, Reg::R8, Reg::R9];
@@ -566,25 +605,41 @@ impl From<TProgram> for AProgram {
                 instructions.append(&mut new);
             }
 
-            let (instructions, size) = cleanup(instructions, func.params.len());
+            let (instructions, size) = cleanup(instructions, func.params.len(), symbols);
 
             AFunction {
                 identifier: func.identifier,
                 instructions,
                 stack_size: size.try_into().unwrap(),
+                global: func.global,
             }
         }
 
         // let function: TFunction = program.function_definition;
 
-        let mut  a_functions = vec![];
+        let mut a_toplevels = vec![];
 
-        for function in program.function_definition {
-            a_functions.push(function_to_afunction(function));
+        for top_level in program.top_levels {
+            match top_level {
+                TopLevel::Function(function) => {
+                    a_toplevels.push(ATopLevel::Func(function_to_afunction(function, symbols)));
+                }
+                TopLevel::StaticVariable {
+                    identifier,
+                    global,
+                    init,
+                } => {
+                    a_toplevels.push(ATopLevel::StaticVariable {
+                        name: identifier,
+                        global,
+                        init,
+                    });
+                }
+            }
         }
 
         AProgram {
-            functions: a_functions,
+            functions: a_toplevels,
         }
     }
 }

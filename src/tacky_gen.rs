@@ -1,16 +1,30 @@
-use crate::parser::{
-    BinOp, BlockItem, Declaration, Expression, Factor, ForInit, FunctionDeclaration, Program,
-    Statement, UnaryOp, VariableDeclaration,
+use crate::{
+    parser::{
+        BinOp, BlockItem, Declaration, Expression, Factor, ForInit, FunctionDeclaration, Program,
+        Statement, UnaryOp, VariableDeclaration,
+    },
+    type_checker::{IdentifierAttrs, InitialValue, Symbols},
 };
 
 #[derive(Clone, Debug)]
 pub struct TProgram {
-    pub function_definition: Vec<TFunction>,
+    pub top_levels: Vec<TopLevel>,
+}
+
+#[derive(Clone, Debug)]
+pub enum TopLevel {
+    Function(TFunction),
+    StaticVariable {
+        identifier: Identifier,
+        global: bool,
+        init: i32,
+    },
 }
 
 #[derive(Clone, Debug)]
 pub struct TFunction {
     pub identifier: String,
+    pub global: bool,
     pub params: Vec<Identifier>,
     pub instructions: Vec<TInstruction>,
 }
@@ -113,8 +127,8 @@ pub enum TUnaryOp {
     Not,
 }
 
-impl From<Program> for TProgram {
-    fn from(program: Program) -> Self {
+impl TProgram {
+    fn from_program(program: Program, symbols: &Symbols) -> Self {
         fn unary_to_tacky(op: UnaryOp) -> TUnaryOp {
             match op {
                 UnaryOp::Complement => TUnaryOp::Complement,
@@ -331,12 +345,14 @@ impl From<Program> for TProgram {
 
                     let result = Val::Var(get_new_id("function_call_result"));
 
-                    instructions.push(
-                        TInstruction::FunCall { fun_name: ident, arguments: arg_results, dst: result.clone() }
-                    );
+                    instructions.push(TInstruction::FunCall {
+                        fun_name: ident,
+                        arguments: arg_results,
+                        dst: result.clone(),
+                    });
 
                     result
-                },
+                }
             }
         }
 
@@ -506,6 +522,7 @@ impl From<Program> for TProgram {
                 ForInit::InitDecl(Declaration::VarDecl(VariableDeclaration {
                     identifier: variable,
                     init,
+                    storage_class: _,
                 })) => {
                     match init {
                         Some(exp) => {
@@ -524,7 +541,7 @@ impl From<Program> for TProgram {
                     }
                     None => {}
                 },
-                ForInit::InitDecl(Declaration::FunDecl(_)) => unreachable!()
+                ForInit::InitDecl(Declaration::FunDecl(_)) => unreachable!(),
             }
         }
 
@@ -537,6 +554,7 @@ impl From<Program> for TProgram {
                 BlockItem::Declaration(Declaration::VarDecl(VariableDeclaration {
                     identifier: variable,
                     init,
+                    storage_class: _,
                 })) => {
                     match init {
                         Some(exp) => {
@@ -550,15 +568,18 @@ impl From<Program> for TProgram {
                     };
                 }
 
-                BlockItem::Declaration(Declaration::FunDecl(_)) => unimplemented!()
+                BlockItem::Declaration(Declaration::FunDecl(_)) => unimplemented!(),
             }
         }
 
-        fn function_to_afunction(func: FunctionDeclaration) -> Option<TFunction> {
+        fn function_to_afunction(
+            func: FunctionDeclaration,
+            symbols: &Symbols,
+        ) -> Option<TFunction> {
             let mut instructions = vec![];
 
             if func.body.is_none() {
-                return None
+                return None;
             }
 
             for block_item in func.body.unwrap().iter() {
@@ -568,25 +589,73 @@ impl From<Program> for TProgram {
             //hack to support functions with no returns, if it already has a return, this'll be ignored
             instructions.push(TInstruction::Return(Val::Constant(0)));
 
+            let global = if let IdentifierAttrs::FunAttr { defined: _, global } = symbols.get(&func.identifier).unwrap().1 {
+                global
+            } else {
+                false
+            };
+
             Some(TFunction {
                 identifier: func.identifier,
                 params: func.params,
                 instructions,
+                global
             })
         }
 
         // let function: FunctionDeclaration = program.functions[0].clone();
 
-        let mut functions = vec![];
+        let mut top_levls = vec![];
 
-        for function in program.functions {
-            if function.body.is_some() {
-                functions.push(function_to_afunction(function).unwrap())
+        for declaration in program.declarations {
+            match declaration {
+                Declaration::FunDecl(fun_decl) => {
+                    if fun_decl.body.is_some() {
+                        top_levls.push(TopLevel::Function(function_to_afunction(fun_decl, symbols).unwrap()))
+                    }
+                }
+                Declaration::VarDecl(_var_decl) => {
+                    continue;
+                }
             }
         }
 
         TProgram {
-            function_definition: functions,
+            top_levels: top_levls,
+        }
+    }
+}
+
+pub fn ast_to_tacky(program: Program, symbols: &Symbols) -> TProgram {
+    let mut program_values = vec![];
+
+    symbols_to_tacky(symbols, &mut program_values);
+
+    let mut data = TProgram::from_program(program, symbols).top_levels;
+    program_values.append(&mut data);
+
+    return TProgram {
+        top_levels: program_values,
+    };
+}
+
+fn symbols_to_tacky(symbols: &Symbols, tacky_defs: &mut Vec<TopLevel>) {
+    for (name, entry) in symbols.iter() {
+        match entry.1 {
+            IdentifierAttrs::StaticAttr { init, global } => match init {
+                InitialValue::Tentative => tacky_defs.push(TopLevel::StaticVariable {
+                    identifier: name.to_string(),
+                    global,
+                    init: 0,
+                }),
+                InitialValue::Initial(i) => tacky_defs.push(TopLevel::StaticVariable {
+                    identifier: name.to_string(),
+                    global,
+                    init: i,
+                }),
+                InitialValue::NoInitializer => continue,
+            },
+            _ => continue,
         }
     }
 }

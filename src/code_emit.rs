@@ -1,7 +1,9 @@
 use crate::{
-    code_gen::{ABinOp, AFunction, AProgram, AUnOp, CondCode, Instruction, Operand, Reg},
+    code_gen::{
+        ABinOp, AFunction, AProgram, ATopLevel, AUnOp, CondCode, Instruction, Operand, Reg,
+    },
     tacky_gen::Identifier,
-    type_checker::Symbols,
+    type_checker::{IdentifierAttrs, Symbols},
 };
 
 pub trait CodeEmission {
@@ -44,6 +46,7 @@ impl CodeEmission for Operand {
             Operand::Register(reg) => reg.emit(s),
             Operand::Pseudo(_) => unreachable!("Pseudo Operands shouldn't be Code Emitted"),
             Operand::Stack(x) => format!("{}(%rbp)", x),
+            Operand::Data(ident) => format!("{}(%rip)", ident),
         }
     }
 }
@@ -123,7 +126,14 @@ impl CodeEmission for Instruction {
             Instruction::Push(operand) => format!("pushq {}", operand.emit(s)),
             Instruction::Call(func) => format!(
                 "call {}",
-                if let Some((_, already_defined)) = s.get(&func.clone()) {
+                if let Some((
+                    _,
+                    IdentifierAttrs::FunAttr {
+                        defined: already_defined,
+                        global: _,
+                    },
+                )) = s.get(&func.clone())
+                {
                     if *already_defined {
                         func.clone()
                     } else {
@@ -132,7 +142,7 @@ impl CodeEmission for Instruction {
                 } else {
                     unreachable!()
                 }
-            ), //TODO: Lookup in Symbol Table to be able to tell if we need @PLT.
+            ),
         }
     }
 }
@@ -147,12 +157,60 @@ impl CodeEmission for AFunction {
                 format!("{}\n\t{}", acc, inst.emit(s))
             });
         format!(
-            "{}:
+            "{}
+{}:
 \tpushq\t%rbp
 \tmovq\t%rsp, %rbp
 \t{}",
-            self.identifier, instructions
+            if self.global {
+                format!(".globl {}", self.identifier)
+            } else {
+                "".to_string()
+            },
+            self.identifier,
+            instructions
         )
+    }
+}
+
+impl CodeEmission for ATopLevel {
+    fn emit(&self, symbols: &Symbols) -> String {
+        match self {
+            ATopLevel::Func(afunction) => afunction.emit(symbols),
+            ATopLevel::StaticVariable { name, global, init } => {
+                if *global && *init != 0 {
+                    format!(
+                        "\t.globl {name}
+\t.data
+\t.align 4
+{name}:
+\t.long {init}"
+                    )
+                } else if *global && *init == 0 {
+                    format!(
+                        "\t.globl {name}
+\t.data
+\t.align 4
+{name}:
+\t.zero 4"
+                    )
+                } else if !global && *init != 0 {
+                    format!(
+                        "\t.data
+\t.align 4
+{name}:
+\t.long {init}"
+                    )
+                } else {
+                    format!(
+                        "\t.data
+\t.align 4
+{name}:
+\t.zero 4"
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -160,8 +218,7 @@ impl CodeEmission for AProgram {
     #[inline]
     fn emit(&self, s: &Symbols) -> String {
         format!(
-            ".globl main
-{}
+            "{}
 .section .note.GNU-stack,\"\",@progbits\n",
             self.functions
                 .iter()

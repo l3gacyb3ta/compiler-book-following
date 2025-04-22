@@ -6,7 +6,7 @@ pub trait Parsable {
 
 #[derive(Debug)]
 pub struct Program {
-    pub functions: Vec<FunctionDeclaration>,
+    pub declarations: Vec<Declaration>,
 }
 
 #[derive(Debug, Clone)]
@@ -14,6 +14,13 @@ pub struct FunctionDeclaration {
     pub identifier: Identifier,
     pub params: Vec<Identifier>,
     pub body: Option<Block>,
+    pub storage_class: Option<StorageClass>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum StorageClass {
+    Static,
+    Extern,
 }
 
 #[derive(Debug, Clone)]
@@ -26,6 +33,7 @@ pub enum BlockItem {
 pub struct VariableDeclaration {
     pub identifier: String,
     pub init: Option<Box<Expression>>,
+    pub storage_class: Option<StorageClass>,
 }
 
 #[derive(Debug, Clone)]
@@ -37,7 +45,7 @@ pub enum Declaration {
 pub type Block = Vec<BlockItem>;
 pub type Identifier = String;
 
-use std::sync::atomic::AtomicUsize;
+use std::{error::Error, sync::atomic::AtomicUsize};
 static IDENTIFIER_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 fn get_new_identfier() -> Identifier {
@@ -425,10 +433,12 @@ impl Parsable for Factor {
                     }
                     expect(tokens, Token::CloseParen);
 
-
-                    Factor::Expression(Box::new(Expression::FunctionCall { ident: identifier, args: params }))
-                },
-                _ => Factor::Var { ident: identifier }
+                    Factor::Expression(Box::new(Expression::FunctionCall {
+                        ident: identifier,
+                        args: params,
+                    }))
+                }
+                _ => Factor::Var { ident: identifier },
             }
         } else if token_is(&next_token, &Token::Assignment) {
             panic!("uhhh")
@@ -475,8 +485,7 @@ impl Parsable for Statement {
                     false
                 };
                 let value = Some(Box::new(Statement::parse(tokens)));
-                if braced {
-                };
+                if braced {};
 
                 value
             } else {
@@ -571,9 +580,49 @@ impl Parsable for Statement {
     }
 }
 
+fn token_in(token: Token, options: &Vec<Token>) -> bool {
+    for option in options {
+        if token_is(&token, &option) {
+            return true;
+        }
+    }
+    return false;
+}
+
+fn expect_multiple(tokens: &mut Vec<Token>, options: Vec<Token>) -> Token {
+    let token = tokens.pop();
+    if token.is_none() {
+        panic!("Expected one of {:?}, but found no more tokens.", options);
+    }
+    let token = token.unwrap();
+
+    if token_in(token.clone(), &options) {
+        return token;
+    } else {
+        panic!("Expected one of {:?}, but found {:?}.", options, token);
+    }
+}
+
+fn take(tokens: &mut Vec<Token>) -> Token {
+    let token = tokens.pop();
+    if token.is_none() {
+        panic!("Tried to take a token, found none.");
+    }
+
+    return token.unwrap();
+}
+
 impl Parsable for Declaration {
     fn parse(tokens: &mut Vec<Token>) -> Self {
-        expect(tokens, Token::Int);
+        let specifiers = vec![Token::Int, Token::Extern, Token::Static];
+
+        let mut spec_list = vec![];
+
+        while token_in(peek(tokens), &specifiers) {
+            spec_list.push(take(tokens));
+        }
+
+        let (_type_t, storage_class) = parse_type_and_storage_class(spec_list).unwrap();
 
         let identifier = expect(tokens, Token::Identifier("".to_owned()));
         let identifier = match identifier {
@@ -582,7 +631,11 @@ impl Parsable for Declaration {
         };
 
         if token_is(&peek(tokens), &Token::OpenParen) {
-            return Self::FunDecl(FunctionDeclaration::parse_with_name(tokens, identifier));
+            return Self::FunDecl(FunctionDeclaration::parse_with_name(
+                tokens,
+                identifier,
+                storage_class,
+            ));
         }
 
         let init = if token_is(&peek(tokens), &Token::Assignment) {
@@ -596,7 +649,11 @@ impl Parsable for Declaration {
 
         expect(tokens, Token::Semicolon);
 
-        Self::VarDecl(VariableDeclaration { identifier, init })
+        Self::VarDecl(VariableDeclaration {
+            identifier,
+            init,
+            storage_class,
+        })
     }
 }
 
@@ -612,8 +669,52 @@ impl Parsable for BlockItem {
     }
 }
 
+fn parse_type_and_storage_class(
+    specifier_list: Vec<Token>,
+) -> Result<(Token, Option<StorageClass>), Box<dyn Error>> {
+    let mut types = vec![];
+    let mut storage_classes = vec![];
+
+    for specifier in specifier_list {
+        if token_is(&specifier, &Token::Int) {
+            types.push(specifier)
+        } else {
+            storage_classes.push(specifier)
+        }
+    }
+
+    if types.len() != 1 {
+        return Err("Invalid type specifier".into());
+    }
+
+    if storage_classes.len() > 1 {
+        return Err("Invalid storage class".into());
+    }
+
+    let type_t = Token::Int;
+    let mut storage_class = None;
+
+    if storage_classes.len() == 1 {
+        storage_class = Some(parse_storage_class(storage_classes.pop().unwrap())?);
+    }
+
+    return Ok((type_t, storage_class));
+}
+
+fn parse_storage_class(token: Token) -> Result<StorageClass, Box<dyn Error>> {
+    match token {
+        Token::Extern => Ok(StorageClass::Extern),
+        Token::Static => Ok(StorageClass::Static),
+        x => Err(format!("Unknown storage class {:?}", x).into()),
+    }
+}
+
 impl FunctionDeclaration {
-    fn parse_with_name(tokens: &mut Vec<Token>, identifier: String) -> Self {
+    fn parse_with_name(
+        tokens: &mut Vec<Token>,
+        identifier: String,
+        storage_class: Option<StorageClass>,
+    ) -> Self {
         expect(tokens, Token::OpenParen);
         let mut params = vec![];
 
@@ -645,6 +746,7 @@ impl FunctionDeclaration {
                 identifier,
                 body: None,
                 params,
+                storage_class,
             };
         };
 
@@ -663,38 +765,42 @@ impl FunctionDeclaration {
             identifier,
             body: Some(body),
             params,
+            storage_class,
         };
     }
 }
 
-impl Parsable for FunctionDeclaration {
-    fn parse(tokens: &mut Vec<Token>) -> Self {
-        expect(tokens, Token::Int);
+/* impl Parsable for FunctionDeclaration {
+//     fn parse(tokens: &mut Vec<Token>) -> Self {
+//         expect(tokens, Token::Int);
 
-        let identifier = expect(tokens, Token::Identifier("".to_owned()));
-        let identifier = match identifier {
-            Token::Identifier(x) => x,
-            _ => unreachable!(),
-        };
+//         let identifier = expect(tokens, Token::Identifier("".to_owned()));
+//         let identifier = match identifier {
+//             Token::Identifier(x) => x,
+//             _ => unreachable!(),
+//         };
 
-        return FunctionDeclaration::parse_with_name(tokens, identifier)
-    }
-}
+//         return FunctionDeclaration::parse_with_name(tokens, identifier)
+//     }
+// } */
 
 impl Parsable for Program {
     fn parse(tokens: &mut Vec<Token>) -> Self {
-        let mut functions = vec![];
+        let mut declarations = vec![];
 
-        while (!tokens.is_empty()) && token_is(&peek(tokens), &Token::Int) {
-            let function = FunctionDeclaration::parse(tokens);
-            
-            functions.push(function);
+        while (!tokens.is_empty())
+            && token_in(
+                peek(tokens),
+                &vec![Token::Int, Token::Void, Token::Extern, Token::Static],
+            )
+        {
+            let decl = Declaration::parse(tokens);
+
+            declarations.push(decl);
         }
 
-        println!("{:#?}", tokens);
+        // println!("{:#?}", tokens);
 
-        Program {
-            functions,
-        }
+        Program { declarations }
     }
 }

@@ -48,6 +48,8 @@ pub enum Token {
     Int,
     Void,
     Return,
+    Static,
+    Extern,
 
     Do,
     While,
@@ -267,6 +269,8 @@ pub fn tokenize(string: &str) -> Vec<Token> {
                     "for" => Token::For,
                     "break" => Token::Break,
                     "continue" => Token::Continue,
+                    "static" => Token::Static,
+                    "extern" => Token::Extern,
                     value => Token::Identifier(value.into()),
                 }
             }
