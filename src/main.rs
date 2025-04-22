@@ -3,7 +3,7 @@ mod lexer;
 mod parser;
 mod semantic_analysis;
 mod type_checker;
-// mod tacky_gen;
+mod tacky_gen;
 // mod code_gen;
 // mod code_emit;
 
@@ -12,7 +12,7 @@ mod type_checker;
 // use code_gen::AProgram;
 use lexer::tokenize;
 use parser::{Parsable, Program};
-// use tacky_gen::TProgram;
+use tacky_gen::TProgram;
 use std::env::args;
 use std::fs;
 
@@ -43,9 +43,9 @@ fn main() {
 
     println!("{:#?}\n--------", program_analyzed);
 
-    // let tacky: TProgram = program_analyzed.into();
+    let tacky: TProgram = program_analyzed.into();
 
-    // println!("{:#?}\n--------", tacky);
+    println!("{:#?}\n--------", tacky);
 
     // let assembly_dsl: AProgram = tacky.into();
 
