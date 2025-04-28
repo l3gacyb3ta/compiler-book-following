@@ -1,9 +1,9 @@
 use crate::{
     parser::{
-        BinOp, BlockItem, Declaration, Expression, Factor, ForInit, FunctionDeclaration, Program,
-        Statement, UnaryOp, VariableDeclaration,
+        BinOp, BlockItem, Const, Declaration, Expression, Factor, ForInit, FunctionDeclaration,
+        Program, Statement, Type, TypedExpression, UnaryOp, VariableDeclaration,
     },
-    type_checker::{IdentifierAttrs, InitialValue, Symbols},
+    type_checker::{get_type, IdentifierAttrs, InitialValue, StaticInit, Symbols},
 };
 
 #[derive(Clone, Debug)]
@@ -17,7 +17,8 @@ pub enum TopLevel {
     StaticVariable {
         identifier: Identifier,
         global: bool,
-        init: i32,
+        init: StaticInit,
+        t: Type,
     },
 }
 
@@ -71,6 +72,14 @@ pub enum TInstruction {
         arguments: Vec<Val>,
         dst: Val,
     },
+    SignExtend {
+        src: Val,
+        dst: Val,
+    },
+    Truncate {
+        src: Val,
+        dst: Val,
+    },
     Label(Identifier),
 }
 
@@ -89,12 +98,12 @@ pub enum TBinOp {
     GreaterOrEqual,
     BitwiseAnd,
     BitwiseOr,
-    BitwiseXor
+    BitwiseXor,
 }
 
 #[derive(Clone, Debug)]
 pub enum Val {
-    Constant(i32),
+    Constant(Const),
     Var(Identifier),
 }
 
@@ -117,7 +126,7 @@ fn get_new_label(descriptor: &str) -> Identifier {
 impl std::fmt::Display for Val {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Val::Constant(x) => write!(f, "{}", x),
+            Val::Constant(x) => write!(f, "{:?}", x),
             Val::Var(x) => write!(f, "{}", x),
         }
     }
@@ -131,7 +140,7 @@ pub enum TUnaryOp {
 }
 
 impl TProgram {
-    fn from_program(program: Program, symbols: &Symbols) -> Self {
+    fn from_program(program: Program, symbols: &mut Symbols) -> Self {
         fn unary_to_tacky(op: UnaryOp) -> TUnaryOp {
             match op {
                 UnaryOp::Complement => TUnaryOp::Complement,
@@ -160,27 +169,43 @@ impl TProgram {
             }
         }
 
-        fn expression_to_tacky(exp: Expression, instructions: &mut Vec<TInstruction>) -> Val {
-            match exp {
+        fn make_tacky_variable(descriptor: &str, var_type: Type, symbols: &mut Symbols) -> Val {
+            if var_type == Type::Null {
+                panic!("null hm")
+            }
+
+            let name = get_new_id(descriptor);
+            symbols.insert(name.clone(), (var_type, IdentifierAttrs::LocalAttr));
+
+            Val::Var(name)
+        }
+
+        fn expression_to_tacky(
+            exp: TypedExpression,
+            symbols: &mut Symbols,
+            instructions: &mut Vec<TInstruction>,
+        ) -> Val {
+            match exp.exp {
                 Expression::Binary { lhs, op, rhs } => {
+                    let result = make_tacky_variable("result", exp.type_t, symbols);
+
                     if op == BinOp::And {
-                        let v1 = expression_to_tacky(*lhs, instructions);
+                        let v1 = expression_to_tacky(*lhs, symbols, instructions);
                         let false_label = get_new_label("false_label");
                         instructions.push(TInstruction::JumpIfZero {
                             condition: v1,
                             target: false_label.clone(),
                         });
 
-                        let v2 = expression_to_tacky(*rhs, instructions);
+                        let v2 = expression_to_tacky(*rhs, symbols, instructions);
                         instructions.push(TInstruction::JumpIfZero {
                             condition: v2,
                             target: false_label.clone(),
                         });
 
-                        let result = Val::Var(get_new_id("result"));
                         let end = get_new_label("end");
                         instructions.push(TInstruction::Copy {
-                            src: Val::Constant(1),
+                            src: Val::Constant(Const::ConstInt(1)),
                             dst: result.clone(),
                         });
                         instructions.push(TInstruction::Jump {
@@ -189,30 +214,29 @@ impl TProgram {
 
                         instructions.push(TInstruction::Label(false_label));
                         instructions.push(TInstruction::Copy {
-                            src: Val::Constant(0),
+                            src: Val::Constant(Const::ConstInt(0)),
                             dst: result.clone(),
                         });
                         instructions.push(TInstruction::Label(end));
 
                         return result;
                     } else if op == BinOp::Or {
-                        let v1 = expression_to_tacky(*lhs, instructions);
+                        let v1 = expression_to_tacky(*lhs, symbols, instructions);
                         let false_label = get_new_label("false_label");
                         instructions.push(TInstruction::JumpIfNotZero {
                             condition: v1,
                             target: false_label.clone(),
                         });
 
-                        let v2 = expression_to_tacky(*rhs, instructions);
+                        let v2 = expression_to_tacky(*rhs, symbols, instructions);
                         instructions.push(TInstruction::JumpIfNotZero {
                             condition: v2,
                             target: false_label.clone(),
                         });
 
-                        let result = Val::Var(get_new_id("result"));
                         let end = get_new_label("end");
                         instructions.push(TInstruction::Copy {
-                            src: Val::Constant(1),
+                            src: Val::Constant(Const::ConstInt(1)),
                             dst: result.clone(),
                         });
                         instructions.push(TInstruction::Jump {
@@ -221,7 +245,7 @@ impl TProgram {
 
                         instructions.push(TInstruction::Label(false_label));
                         instructions.push(TInstruction::Copy {
-                            src: Val::Constant(0),
+                            src: Val::Constant(Const::ConstInt(0)),
                             dst: result.clone(),
                         });
                         instructions.push(TInstruction::Label(end));
@@ -229,10 +253,8 @@ impl TProgram {
                         return result;
                     }
 
-                    let v1 = expression_to_tacky(*lhs, instructions);
-                    let v2 = expression_to_tacky(*rhs, instructions);
-
-                    let dst = Val::Var(get_new_id("result"));
+                    let v1 = expression_to_tacky(*lhs, symbols, instructions);
+                    let v2 = expression_to_tacky(*rhs, symbols, instructions);
 
                     let tacky_op = binop_to_tacky(op);
 
@@ -240,22 +262,22 @@ impl TProgram {
                         binary_op: tacky_op,
                         src1: v1,
                         src2: v2,
-                        dst: dst.clone(),
+                        dst: result.clone(),
                     });
 
-                    dst
+                    result
                 }
-                Expression::Factor(factor) => factor_to_tacky(factor, instructions),
+                Expression::Factor(factor) => factor_to_tacky(factor.fac, symbols, instructions),
                 Expression::Assignment { lhs, rhs } => {
-                    let lhs = match *lhs {
-                        Expression::Factor(f) => match f {
+                    let lhs = match (*lhs).exp {
+                        Expression::Factor(f) => match f.fac {
                             Factor::Var { ident } => Val::Var(ident),
                             _ => unreachable!(),
                         },
                         _ => unreachable!(),
                     };
 
-                    let result = expression_to_tacky(*rhs, instructions);
+                    let result = expression_to_tacky(*rhs, symbols, instructions);
                     instructions.push(TInstruction::Copy {
                         src: result,
                         dst: lhs.clone(),
@@ -264,22 +286,24 @@ impl TProgram {
                     lhs
                 }
                 Expression::AssignmentOp { lhs, rhs, op } => {
-                    let lhs = match *lhs {
-                        Expression::Factor(f) => match f {
+                    let type_t = lhs.type_t;
+                    let lhs = match (*lhs).exp {
+                        Expression::Factor(f) => match f.fac {
                             Factor::Var { ident } => Val::Var(ident),
                             _ => unreachable!(),
                         },
                         _ => unreachable!(),
                     };
 
-                    let old = Val::Var(get_new_id("previous_value"));
+                    let old: Val = make_tacky_variable("previous_value", type_t.clone(), symbols);
+
                     instructions.push(TInstruction::Copy {
                         src: lhs.clone(),
                         dst: old.clone(),
                     });
 
-                    let rhs = expression_to_tacky(*rhs, instructions);
-                    let result = Val::Var(get_new_id("result"));
+                    let rhs = expression_to_tacky(*rhs, symbols, instructions);
+                    let result = make_tacky_variable("result", type_t, symbols);
 
                     instructions.push(TInstruction::Binary {
                         binary_op: binop_to_tacky(op),
@@ -301,9 +325,9 @@ impl TProgram {
                     false_e,
                 } => {
                     // <condition> : <e1> ? <e2>
-                    let middle_c = Val::Var(get_new_id("C"));
+                    let middle_c = make_tacky_variable("C", condition.type_t.clone(), symbols);
 
-                    let cond = expression_to_tacky(*condition, instructions);
+                    let cond = expression_to_tacky(*(condition), symbols, instructions);
                     instructions.push(TInstruction::Copy {
                         src: cond,
                         dst: middle_c.clone(),
@@ -311,7 +335,7 @@ impl TProgram {
 
                     let e2_label = get_new_label("e2_label");
                     let end_label = get_new_label("end_label");
-                    let result = Val::Var(get_new_id("result"));
+                    let result = make_tacky_variable("result", exp.type_t.clone(), symbols);
 
                     instructions.push(TInstruction::JumpIfZero {
                         condition: middle_c,
@@ -319,7 +343,7 @@ impl TProgram {
                     });
 
                     // calculate e1
-                    let v1 = expression_to_tacky(*true_e, instructions);
+                    let v1 = expression_to_tacky(*true_e, symbols, instructions);
                     instructions.push(TInstruction::Copy {
                         src: v1,
                         dst: result.clone(),
@@ -330,7 +354,7 @@ impl TProgram {
 
                     // calculate e2
                     instructions.push(TInstruction::Label(e2_label));
-                    let v2 = expression_to_tacky(*false_e, instructions);
+                    let v2 = expression_to_tacky(*false_e, symbols, instructions);
                     instructions.push(TInstruction::Copy {
                         src: v2,
                         dst: result.clone(),
@@ -344,12 +368,22 @@ impl TProgram {
                     let mut arg_results = vec![];
 
                     for arg in args {
-                        let result = expression_to_tacky(arg, instructions);
+                        let result = expression_to_tacky(arg, symbols, instructions);
 
                         arg_results.push(result);
                     }
 
-                    let result = Val::Var(get_new_id("function_call_result"));
+                    let function_return_type = symbols.get(&ident).unwrap().0.clone();
+                    let function_return_type = match function_return_type {
+                        Type::FunType {
+                            params: _,
+                            return_value,
+                        } => *return_value,
+                        _ => unreachable!(),
+                    };
+
+                    let result =
+                        make_tacky_variable("function_call_result", function_return_type, symbols);
 
                     instructions.push(TInstruction::FunCall {
                         fun_name: ident,
@@ -359,15 +393,43 @@ impl TProgram {
 
                     result
                 }
+                Expression::Cast { target, exp } => {
+                    let result = expression_to_tacky(*exp.clone(), symbols, instructions);
+
+                    if target == exp.type_t {
+                        return result;
+                    }
+
+                    let dst = make_tacky_variable("cast", target.clone(), symbols);
+
+                    if target == Type::Long {
+                        instructions.push(TInstruction::SignExtend {
+                            src: result,
+                            dst: dst.clone(),
+                        });
+                    } else {
+                        instructions.push(TInstruction::Truncate {
+                            src: result,
+                            dst: dst.clone(),
+                        });
+                    }
+
+                    return dst;
+                }
             }
         }
 
-        fn factor_to_tacky(fac: Factor, instructions: &mut Vec<TInstruction>) -> Val {
+        fn factor_to_tacky(
+            fac: Factor,
+            symbols: &mut Symbols,
+            instructions: &mut Vec<TInstruction>,
+        ) -> Val {
             match fac {
                 Factor::Constant(x) => Val::Constant(x),
                 Factor::Unary { op, fac: in_fac } => {
-                    let src = factor_to_tacky(*in_fac, instructions);
-                    let dst = Val::Var(get_new_id("unary"));
+                    let src = factor_to_tacky((*in_fac).fac, symbols, instructions);
+
+                    let dst = make_tacky_variable("unary", in_fac.type_t, symbols);
 
                     let tacky_op = unary_to_tacky(op);
                     instructions.push(TInstruction::Unary {
@@ -378,33 +440,36 @@ impl TProgram {
 
                     dst
                 }
-                Factor::Expression(expression) => expression_to_tacky(*expression, instructions),
+                Factor::Expression(expression) => {
+                    expression_to_tacky(*expression, symbols, instructions)
+                }
                 Factor::Var { ident } => Val::Var(ident),
             }
         }
 
-        fn statement_to_instructions(sta: Statement) -> Vec<TInstruction> {
+        fn statement_to_instructions(sta: Statement, symbols: &mut Symbols) -> Vec<TInstruction> {
             let mut instructions = vec![];
             match sta {
                 Statement::Return(expression) => {
-                    let val = expression_to_tacky(expression, &mut instructions);
+                    let val = expression_to_tacky(expression, symbols, &mut instructions);
                     instructions.push(TInstruction::Return(val));
                 }
                 Statement::Expression(expression) => {
-                    expression_to_tacky(expression, &mut instructions);
+                    expression_to_tacky(expression, symbols, &mut instructions);
                 }
                 Statement::Null => todo!(),
                 Statement::If { cond, then, else_s } => {
-                    let cond_result = expression_to_tacky(cond, &mut instructions);
+                    let cond_result = expression_to_tacky(cond.clone(), symbols, &mut instructions);
 
-                    let middle_c = Val::Var(get_new_id("C"));
+                    let middle_c = make_tacky_variable("C", cond.type_t.clone(), symbols);
+
                     instructions.push(TInstruction::Copy {
                         src: cond_result,
                         dst: middle_c.clone(),
                     });
 
                     let end = get_new_label("end");
-                    let else_label = get_new_id("else");
+                    let else_label = get_new_label("else");
 
                     instructions.push(TInstruction::JumpIfZero {
                         condition: middle_c,
@@ -415,7 +480,7 @@ impl TProgram {
                         },
                     });
 
-                    instructions.append(&mut statement_to_instructions(*then));
+                    instructions.append(&mut statement_to_instructions(*then, symbols));
 
                     if let Some(else_s) = else_s {
                         instructions.push(TInstruction::Jump {
@@ -423,14 +488,14 @@ impl TProgram {
                         });
                         instructions.push(TInstruction::Label(else_label.clone()));
 
-                        instructions.append(&mut statement_to_instructions(*else_s));
+                        instructions.append(&mut statement_to_instructions(*else_s, symbols));
                     }
 
                     instructions.push(TInstruction::Label(end))
                 }
                 Statement::Compound(block_items) => {
                     for item in block_items.iter() {
-                        block_item_to_instructions(item.clone(), &mut instructions);
+                        block_item_to_instructions(item.clone(), symbols, &mut instructions);
                     }
                 }
                 Statement::Break(lbl) => instructions.push(TInstruction::Jump {
@@ -442,13 +507,13 @@ impl TProgram {
                 Statement::While { cond, body, label } => {
                     instructions.push(TInstruction::Label(format!("{}.continue", label)));
 
-                    let condition_result = expression_to_tacky(cond, &mut instructions);
+                    let condition_result = expression_to_tacky(cond, symbols, &mut instructions);
                     instructions.push(TInstruction::JumpIfZero {
                         condition: condition_result,
                         target: format!("{}.break", label),
                     });
 
-                    instructions.append(&mut statement_to_instructions(*body));
+                    instructions.append(&mut statement_to_instructions(*body, symbols));
 
                     instructions.push(TInstruction::Jump {
                         target: format!("{}.continue", label),
@@ -464,10 +529,11 @@ impl TProgram {
                     // continue label
                     instructions.push(TInstruction::Label(format!("{}.start", label)));
 
-                    instructions.append(&mut statement_to_instructions(*body));
+                    instructions.append(&mut statement_to_instructions(*body, symbols));
                     instructions.push(TInstruction::Label(format!("{}.continue", label)));
 
-                    let condition_result = expression_to_tacky(condition, &mut instructions);
+                    let condition_result =
+                        expression_to_tacky(condition, symbols, &mut instructions);
 
                     instructions.push(TInstruction::JumpIfNotZero {
                         condition: condition_result,
@@ -482,14 +548,14 @@ impl TProgram {
                     label,
                 } => {
                     // init to instructions
-                    for_init_to_instructions(init, &mut instructions);
+                    for_init_to_instructions(init, symbols, &mut instructions);
 
                     instructions.push(TInstruction::Label(format!("{}.start", label)));
 
                     // instrucitons for condtion
                     match condition {
                         Some(condition) => {
-                            let result = expression_to_tacky(condition, &mut instructions);
+                            let result = expression_to_tacky(condition, symbols, &mut instructions);
                             instructions.push(TInstruction::JumpIfZero {
                                 condition: result,
                                 target: format!("{}.break", label),
@@ -501,13 +567,13 @@ impl TProgram {
                     };
 
                     //instructions for body
-                    instructions.append(&mut statement_to_instructions(*body));
+                    instructions.append(&mut statement_to_instructions(*body, symbols));
 
                     instructions.push(TInstruction::Label(format!("{}.continue", label)));
 
                     match post {
                         Some(exp) => {
-                            expression_to_tacky(exp, &mut instructions);
+                            expression_to_tacky(exp, symbols, &mut instructions);
                         }
                         None => {}
                     };
@@ -523,16 +589,21 @@ impl TProgram {
             instructions
         }
 
-        fn for_init_to_instructions(for_init: ForInit, instructions: &mut Vec<TInstruction>) {
+        fn for_init_to_instructions(
+            for_init: ForInit,
+            symbols: &mut Symbols,
+            instructions: &mut Vec<TInstruction>,
+        ) {
             match for_init {
                 ForInit::InitDecl(Declaration::VarDecl(VariableDeclaration {
                     identifier: variable,
                     init,
                     storage_class: _,
+                    var_type: _,
                 })) => {
                     match init {
                         Some(exp) => {
-                            let result = expression_to_tacky(*exp, instructions);
+                            let result = expression_to_tacky(*exp, symbols, instructions);
                             instructions.push(TInstruction::Copy {
                                 src: result,
                                 dst: Val::Var(variable),
@@ -543,7 +614,7 @@ impl TProgram {
                 }
                 ForInit::InitExp(expression) => match expression {
                     Some(exp) => {
-                        expression_to_tacky(exp, instructions);
+                        expression_to_tacky(exp, symbols, instructions);
                     }
                     None => {}
                 },
@@ -551,20 +622,25 @@ impl TProgram {
             }
         }
 
-        fn block_item_to_instructions(block_item: BlockItem, instructions: &mut Vec<TInstruction>) {
+        fn block_item_to_instructions(
+            block_item: BlockItem,
+            symbols: &mut Symbols,
+            instructions: &mut Vec<TInstruction>,
+        ) {
             match block_item {
                 BlockItem::Statement(statement) => {
-                    let mut instr = statement_to_instructions(statement);
+                    let mut instr = statement_to_instructions(statement, symbols);
                     instructions.append(&mut instr);
                 }
                 BlockItem::Declaration(Declaration::VarDecl(VariableDeclaration {
                     identifier: variable,
                     init,
                     storage_class: _,
+                    var_type: _,
                 })) => {
                     match init {
                         Some(exp) => {
-                            let result = expression_to_tacky(*exp, instructions);
+                            let result = expression_to_tacky(*exp, symbols, instructions);
                             instructions.push(TInstruction::Copy {
                                 src: result,
                                 dst: Val::Var(variable),
@@ -580,7 +656,7 @@ impl TProgram {
 
         fn function_to_afunction(
             func: FunctionDeclaration,
-            symbols: &Symbols,
+            symbols: &mut Symbols,
         ) -> Option<TFunction> {
             let mut instructions = vec![];
 
@@ -589,11 +665,11 @@ impl TProgram {
             }
 
             for block_item in func.body.unwrap().iter() {
-                block_item_to_instructions(block_item.clone(), &mut instructions);
+                block_item_to_instructions(block_item.clone(), symbols, &mut instructions);
             }
 
             //hack to support functions with no returns, if it already has a return, this'll be ignored
-            instructions.push(TInstruction::Return(Val::Constant(0)));
+            instructions.push(TInstruction::Return(Val::Constant(Const::ConstInt(0))));
 
             let global = if let IdentifierAttrs::FunAttr { defined: _, global } =
                 symbols.get(&func.identifier).unwrap().1
@@ -636,7 +712,7 @@ impl TProgram {
     }
 }
 
-pub fn ast_to_tacky(program: Program, symbols: &Symbols) -> TProgram {
+pub fn ast_to_tacky(program: Program, symbols: &mut Symbols) -> TProgram {
     let mut program_values = vec![];
 
     symbols_to_tacky(symbols, &mut program_values);
@@ -652,19 +728,31 @@ pub fn ast_to_tacky(program: Program, symbols: &Symbols) -> TProgram {
 fn symbols_to_tacky(symbols: &Symbols, tacky_defs: &mut Vec<TopLevel>) {
     for (name, entry) in symbols.iter() {
         match entry.1 {
-            IdentifierAttrs::StaticAttr { init, global } => match init {
-                InitialValue::Tentative => tacky_defs.push(TopLevel::StaticVariable {
-                    identifier: name.to_string(),
-                    global,
-                    init: 0,
-                }),
-                InitialValue::Initial(i) => tacky_defs.push(TopLevel::StaticVariable {
-                    identifier: name.to_string(),
-                    global,
-                    init: i,
-                }),
-                InitialValue::NoInitializer => continue,
-            },
+            IdentifierAttrs::StaticAttr { init, global } => {
+                let init_value = match init {
+                    InitialValue::Initial(static_init) => match static_init {
+                        StaticInit::InitInt(_) => StaticInit::InitInt(0),
+                        StaticInit::InitLong(_) => StaticInit::InitLong(0),
+                    },
+                    _ => unreachable!(),
+                };
+
+                match init {
+                    InitialValue::Tentative => tacky_defs.push(TopLevel::StaticVariable {
+                        identifier: name.to_string(),
+                        global,
+                        init: init_value,
+                        t: entry.0.clone(),
+                    }),
+                    InitialValue::Initial(i) => tacky_defs.push(TopLevel::StaticVariable {
+                        identifier: name.to_string(),
+                        global,
+                        init: i,
+                        t: entry.0.clone(),
+                    }),
+                    InitialValue::NoInitializer => continue,
+                }
+            }
             _ => continue,
         }
     }

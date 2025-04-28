@@ -1,6 +1,6 @@
 use crate::parser::{
-    Block, BlockItem, Declaration, Expression, Factor, ForInit, FunctionDeclaration, Program,
-    Statement, StorageClass, VariableDeclaration,
+    Block, BlockItem, Declaration, TypedExpression, Factor, ForInit, FunctionDeclaration, Program,
+    Statement, StorageClass, VariableDeclaration, Expression
 };
 use std::{collections::HashMap, error::Error};
 
@@ -97,6 +97,7 @@ fn resolve_declaration(
                 params: new_params,
                 body: new_body,
                 storage_class: function_declaration.storage_class,
+                fun_type: function_declaration.fun_type,
             }))
         }
 
@@ -137,6 +138,8 @@ fn resolve_declaration(
                     identifier: decl.identifier.clone(),
                     init,
                     storage_class: decl.storage_class,
+                    var_type: decl.var_type,
+                    
                 }));
             } else {
                 identifier_map.insert(decl.identifier.clone(), (unique_name.clone(), true, false));
@@ -152,32 +155,33 @@ fn resolve_declaration(
                 identifier: unique_name,
                 init: init,
                 storage_class: decl.storage_class,
+                var_type: decl.var_type,
             }))
         }
     }
 }
 
 pub fn resolve_exp(
-    init: Box<Expression>,
+    init: Box<TypedExpression>,
     variable_map: &mut VariableMap,
-) -> Result<Box<Expression>, Box<dyn Error>> {
-    match *init {
+) -> Result<Box<TypedExpression>, Box<dyn Error>> {
+    match Expression::from(*init) {
         Expression::Factor(factor) => Ok(Box::new(Expression::Factor(resolve_factor(
-            factor,
+            factor.into(),
             variable_map,
-        )?))),
+        )?.into()).into())),
         Expression::Binary { lhs, op, rhs } => Ok(Box::new(Expression::Binary {
             lhs: resolve_exp(lhs, variable_map)?,
             op: op,
             rhs: resolve_exp(rhs, variable_map)?,
-        })),
+        }.into())),
         Expression::Assignment { lhs, rhs } => {
-            if let Expression::Factor(f) = *lhs.clone() {
-                if let Factor::Var { .. } = f {
+            if let Expression::Factor(f) = Expression::from(*lhs.clone()) {
+                if let Factor::Var { .. } = Factor::from(f) {
                     Ok(Box::new(Expression::Assignment {
                         lhs: resolve_exp(lhs, variable_map)?,
                         rhs: resolve_exp(rhs, variable_map)?,
-                    }))
+                    }.into()))
                 } else {
                     Err("Invalid l-value".into())
                 }
@@ -186,13 +190,13 @@ pub fn resolve_exp(
             }
         }
         Expression::AssignmentOp { lhs, rhs, op } => {
-            if let Expression::Factor(f) = *lhs.clone() {
-                if let Factor::Var { .. } = f {
+            if let Expression::Factor(f) = Expression::from(*lhs.clone()) {
+                if let Factor::Var { .. } = Factor::from(f) {
                     Ok(Box::new(Expression::AssignmentOp {
                         lhs: resolve_exp(lhs, variable_map)?,
                         rhs: resolve_exp(rhs, variable_map)?,
                         op,
-                    }))
+                    }.into()))
                 } else {
                     Err("Invalid l-value".into())
                 }
@@ -208,7 +212,7 @@ pub fn resolve_exp(
             condition: resolve_exp(condition, variable_map)?,
             true_e: resolve_exp(true_e, variable_map)?,
             false_e: resolve_exp(false_e, variable_map)?,
-        })),
+        }.into())),
         Expression::FunctionCall { ident, args } => {
             if variable_map.contains_key(&ident) {
                 let new_function_name = variable_map.get(&ident).unwrap().0.clone();
@@ -221,12 +225,16 @@ pub fn resolve_exp(
                 Ok(Box::new(Expression::FunctionCall {
                     ident: new_function_name,
                     args: new_args,
-                }))
+                }.into()))
             } else {
                 println!("{:#?}", variable_map);
                 Err(format!("Undeclared function {}!", ident).into())
             }
         }
+        Expression::Cast { target, exp } => Ok(Box::new(Expression::Cast {
+            target,
+            exp: resolve_exp(exp, variable_map)?,
+        }.into())),
     }
 }
 
@@ -237,7 +245,7 @@ pub fn resolve_factor(
     match factor {
         Factor::Unary { op, fac } => Ok(Factor::Unary {
             op,
-            fac: Box::new(resolve_factor(*fac, variable_map)?),
+            fac: Box::new(resolve_factor((*fac).into(), variable_map)?.into()),
         }),
         Factor::Expression(expression) => {
             Ok(Factor::Expression(resolve_exp(expression, variable_map)?))
@@ -448,6 +456,7 @@ fn label_function(function: FunctionDeclaration) -> FunctionDeclaration {
             None
         },
         storage_class: function.storage_class,
+        fun_type: function.fun_type,
     }
 }
 

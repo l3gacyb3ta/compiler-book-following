@@ -1,49 +1,61 @@
 use crate::{
     code_gen::{
-        ABinOp, AFunction, AProgram, ATopLevel, AUnOp, CondCode, Instruction, Operand, Reg,
+        ABinOp, AFunction, AProgram, ATopLevel, AUnOp, AssemblyType, CondCode, Instruction,
+        Operand, Reg,
     },
     tacky_gen::Identifier,
-    type_checker::{IdentifierAttrs, Symbols},
+    type_checker::{IdentifierAttrs, StaticInit, Symbols},
 };
 
 pub trait CodeEmission {
     fn emit(&self, symbols: &Symbols) -> String;
 }
 
-impl CodeEmission for Reg {
-    fn emit(&self, _: &Symbols) -> String {
-        match self {
-            Reg::AX => "%eax",
-            Reg::DX => "%edx",
-            Reg::CX => "%ecx",
-            Reg::DI => "%edi",
-            Reg::SI => "%esi",
-            Reg::R8 => "%r8d",
-            Reg::R9 => "%r9d",
-            Reg::R10 => "%r10d",
-            Reg::R11 => "%r11d",
+impl Reg {
+    fn emit(&self, s: &Symbols) -> String {
+        self.emit_type(AssemblyType::Longword, s)
+    }
+
+    fn emit_type(&self, t: AssemblyType, _: &Symbols) -> String {
+        match t {
+            AssemblyType::Longword => match self {
+                Reg::AX => "%eax",
+                Reg::DX => "%edx",
+                Reg::CX => "%ecx",
+                Reg::DI => "%edi",
+                Reg::SI => "%esi",
+                Reg::R8 => "%r8d",
+                Reg::R9 => "%r9d",
+                Reg::R10 => "%r10d",
+                Reg::R11 => "%r11d",
+                Reg::SP => "%rspd",
+            }
+            .to_owned(),
+            AssemblyType::Quadword => match self {
+                Reg::AX => "%rax",
+                Reg::CX => "%rcx",
+                Reg::DX => "%rdx",
+                Reg::DI => "%rdi",
+                Reg::SI => "%rsi",
+                Reg::R8 => "%r8",
+                Reg::R9 => "%r9",
+                Reg::R10 => "%r10",
+                Reg::R11 => "%r11",
+                Reg::SP => "%rsp",
+            }
+            .to_owned(),
         }
-        .to_owned()
     }
 }
 
-impl Reg {
-    // pub fn emit_1byte(&self) -> String {
-    //     match self {
-    //         Reg::AX => "%al",
-    //         Reg::DX => "%dl",
-    //         Reg::R10 => "%r10b",
-    //         Reg::R11 => "%r11b",
-    //     }
-    //     .to_owned()
-    // }
-}
-
-impl CodeEmission for Operand {
-    fn emit(&self, s: &Symbols) -> String {
+impl Operand {
+    fn emit(&self, t: Option<AssemblyType>, s: &Symbols) -> String {
         match self {
             Operand::Imm(x) => format!("${}", x),
-            Operand::Register(reg) => reg.emit(s),
+            Operand::Register(reg) => match t {
+                Some(t) => reg.emit_type(t, s),
+                None => reg.emit(s),
+            },
             Operand::Pseudo(_) => unreachable!("Pseudo Operands shouldn't be Code Emitted"),
             Operand::Stack(x) => format!("{}(%rbp)", x),
             Operand::Data(ident) => format!("{}(%rip)", ident),
@@ -63,8 +75,8 @@ impl CodeEmission for Operand {
 impl CodeEmission for AUnOp {
     fn emit(&self, _: &Symbols) -> String {
         match self {
-            AUnOp::Neg => "negl",
-            AUnOp::Not => "notl",
+            AUnOp::Neg => "neg",
+            AUnOp::Not => "not",
         }
         .to_owned()
     }
@@ -73,12 +85,12 @@ impl CodeEmission for AUnOp {
 impl CodeEmission for ABinOp {
     fn emit(&self, _: &Symbols) -> String {
         match self {
-            ABinOp::Add => "addl",
-            ABinOp::Sub => "subl",
-            ABinOp::Mult => "imull",
-            ABinOp::And => "andl",
-            ABinOp::Or => "orl",
-            ABinOp::Xor => "xorl",
+            ABinOp::Add => "add",
+            ABinOp::Sub => "sub",
+            ABinOp::Mult => "imul",
+            ABinOp::And => "and",
+            ABinOp::Or => "or",
+            ABinOp::Xor => "xor",
         }
         .to_owned()
     }
@@ -103,30 +115,64 @@ fn ident_to_string(ident: Identifier) -> String {
     ident
 }
 
+impl AssemblyType {
+    fn emit(&self) -> String {
+        match self {
+            AssemblyType::Longword => "l",
+            AssemblyType::Quadword => "q",
+        }
+        .into()
+    }
+}
+
 impl CodeEmission for Instruction {
     fn emit(&self, s: &Symbols) -> String {
         match self {
-            Instruction::Mov { src, dst } => format!("movl\t{}, {}", src.emit(s), dst.emit(s)),
+            Instruction::Mov { src, dst, t } => {
+                format!(
+                    "mov{}\t{}, {}",
+                    t.emit(),
+                    src.emit(Some(*t), s),
+                    dst.emit(Some(*t), s)
+                )
+            }
             Instruction::Ret => "movq\t%rbp, %rsp
 \tpopq\t%rbp
 \tret"
                 .to_owned(),
-            Instruction::Unary { op, operand } => format!("{}\t{}", op.emit(s), operand.emit(s)),
-            Instruction::AllocateStack(x) => format!("subq\t${}, %rsp", x),
-            Instruction::Binary { op, src, dst } => {
-                format!("{}\t{}, {}", op.emit(s), src.emit(s), dst.emit(s))
+            Instruction::Unary { op, operand, t } => {
+                format!("{}{}\t{}", op.emit(s), t.emit(), operand.emit(Some(*t), s))
             }
-            Instruction::Idiv(operand) => format!("idiv\t{}", operand.emit(s)),
-            Instruction::Cdq => "cdq".to_owned(),
-            Instruction::Cmp { src1, src2 } => format!("cmpl\t{}, {}", src1.emit(s), src2.emit(s)),
+            Instruction::Binary { op, src, dst, t } => {
+                format!(
+                    "{}{}\t{}, {}",
+                    op.emit(s),
+                    t.emit(),
+                    src.emit(Some(*t), s),
+                    dst.emit(Some(*t), s)
+                )
+            }
+            Instruction::Idiv(operand, t) => format!("idiv\t{}", operand.emit(Some(*t), s)),
+            Instruction::Cdq(t) => match t {
+                AssemblyType::Longword => "cdq",
+                AssemblyType::Quadword => "cqo",
+            }
+            .into(),
+            Instruction::Cmp { src1, src2, t } => {
+                format!(
+                    "cmp{}\t{}, {}",
+                    t.emit(),
+                    src1.emit(Some(*t), s),
+                    src2.emit(Some(*t), s)
+                )
+            }
             Instruction::Jmp(label) => format!("jmp\t.L{}", ident_to_string(label.clone())),
             Instruction::JmpCC { cc, ident } => {
                 format!("j{}\t.L{}", cc.emit(s), ident_to_string(ident.clone()))
             }
-            Instruction::SetCC { cc, src } => format!("set{}\t{}", cc.emit(s), src.emit(s)),
+            Instruction::SetCC { cc, src } => format!("set{}\t{}", cc.emit(s), src.emit(None, s)),
             Instruction::Label(l) => format!(".L{}:", ident_to_string(l.clone())),
-            Instruction::DeallocateStack(amount) => format!("addq ${}, %rsp", amount),
-            Instruction::Push(operand) => format!("pushq {}", operand.emit(s)),
+            Instruction::Push(operand) => format!("pushq {}", operand.emit(None, s)),
             Instruction::Call(func) => format!(
                 "call {}",
                 if let Some((
@@ -146,6 +192,12 @@ impl CodeEmission for Instruction {
                     unreachable!()
                 }
             ),
+            Instruction::Movsx { src, dst } => format!(
+                "movslq\t{},{}",
+                src.emit(Some(AssemblyType::Longword), s),
+                dst.emit(Some(AssemblyType::Quadword), s)
+            )
+            .into(),
         }
     }
 }
@@ -176,40 +228,47 @@ impl CodeEmission for AFunction {
     }
 }
 
+impl StaticInit {
+    pub fn emit(&self) -> String {
+        match self {
+            StaticInit::InitInt(i) => match i {
+                0 => ".zero 4".into(),
+                x => format!(".long {}", x),
+            },
+            StaticInit::InitLong(i) => match i {
+                0 => ".zero 8".into(),
+                x => format!(".quad {}", x),
+            },
+        }
+    }
+}
+
 impl CodeEmission for ATopLevel {
     fn emit(&self, symbols: &Symbols) -> String {
         match self {
             ATopLevel::Func(afunction) => afunction.emit(symbols),
-            ATopLevel::StaticVariable { name, global, init } => {
-                if *global && *init != 0 {
+            ATopLevel::StaticVariable {
+                name,
+                global,
+                init,
+                alignment,
+            } => {
+                if *global {
                     format!(
                         "\t.globl {name}
 \t.data
-\t.align 4
+\t.align {alignment}
 {name}:
-\t.long {init}"
-                    )
-                } else if *global && *init == 0 {
-                    format!(
-                        "\t.globl {name}
-\t.data
-\t.align 4
-{name}:
-\t.zero 4"
-                    )
-                } else if !global && *init != 0 {
-                    format!(
-                        "\t.data
-\t.align 4
-{name}:
-\t.long {init}"
+\t{}",
+                        init.emit()
                     )
                 } else {
                     format!(
                         "\t.data
-\t.align 4
+\t.align {alignment}
 {name}:
-\t.zero 4"
+\t{}",
+                        init.emit()
                     )
                 }
             }

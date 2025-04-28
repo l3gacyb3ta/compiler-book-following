@@ -4,6 +4,17 @@ pub trait Parsable {
     fn parse(tokens: &mut Vec<Token>) -> Self;
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum Type {
+    Int,
+    Long,
+    FunType {
+        params: Vec<Type>,
+        return_value: Box<Type>,
+    },
+    Null
+}
+
 #[derive(Debug)]
 pub struct Program {
     pub declarations: Vec<Declaration>,
@@ -15,6 +26,7 @@ pub struct FunctionDeclaration {
     pub params: Vec<Identifier>,
     pub body: Option<Block>,
     pub storage_class: Option<StorageClass>,
+    pub fun_type: Type,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -32,8 +44,9 @@ pub enum BlockItem {
 #[derive(Debug, Clone)]
 pub struct VariableDeclaration {
     pub identifier: String,
-    pub init: Option<Box<Expression>>,
+    pub init: Option<Box<TypedExpression>>,
     pub storage_class: Option<StorageClass>,
+    pub var_type: Type,
 }
 
 #[derive(Debug, Clone)]
@@ -42,10 +55,16 @@ pub enum Declaration {
     VarDecl(VariableDeclaration),
 }
 
+#[derive(Debug, Clone)]
+pub enum Const {
+    ConstInt(i32),
+    ConstLong(i64),
+}
+
 pub type Block = Vec<BlockItem>;
 pub type Identifier = String;
 
-use std::{error::Error, sync::atomic::AtomicUsize};
+use std::{error::Error, os::unix::process::parent_id, sync::atomic::AtomicUsize};
 static IDENTIFIER_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 fn get_new_identfier() -> Identifier {
@@ -56,10 +75,10 @@ fn get_new_identfier() -> Identifier {
 
 #[derive(Debug, Clone)]
 pub enum Statement {
-    Return(Expression),
-    Expression(Expression),
+    Return(TypedExpression),
+    Expression(TypedExpression),
     If {
-        cond: Expression,
+        cond: TypedExpression,
         then: Box<Statement>,
         else_s: Option<Box<Statement>>,
     },
@@ -67,19 +86,19 @@ pub enum Statement {
     Break(Identifier),
     Continue(Identifier),
     While {
-        cond: Expression,
+        cond: TypedExpression,
         body: Box<Statement>,
         label: Identifier,
     },
     DoWhile {
         body: Box<Statement>,
-        condition: Expression,
+        condition: TypedExpression,
         label: Identifier,
     },
     For {
         init: ForInit,
-        condition: Option<Expression>,
-        post: Option<Expression>,
+        condition: Option<TypedExpression>,
+        post: Option<TypedExpression>,
         body: Box<Statement>,
         label: Identifier,
     },
@@ -89,44 +108,100 @@ pub enum Statement {
 #[derive(Debug, Clone)]
 pub enum ForInit {
     InitDecl(Declaration),
-    InitExp(Option<Expression>),
+    InitExp(Option<TypedExpression>),
+}
+
+#[derive(Clone)]
+pub struct TypedExpression {
+    pub type_t: Type,
+    pub exp: Expression
+}
+
+impl std::fmt::Debug for TypedExpression {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.type_t == Type::Null {
+            f.write_str(&format!("#{:#?}", self.exp))
+        } else {
+            f.write_str(&format!("({:?}: {:#?})", self.type_t, self.exp))
+        }
+    }
+}
+
+impl From<Expression> for TypedExpression {
+    fn from(value: Expression) -> Self {
+        Self {
+            type_t: Type::Null,
+            exp: value,
+        }
+    }
+}
+
+impl From<TypedExpression> for Expression {
+    fn from(value: TypedExpression) -> Self {
+        value.exp
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct TypedFactor {
+    pub type_t: Type,
+    pub fac: Factor
+}
+
+impl From<Factor> for TypedFactor {
+    fn from(value: Factor) -> Self {
+        Self {
+            type_t: Type::Null,
+            fac: value,
+        }
+    }
+}
+
+impl From<TypedFactor> for Factor {
+    fn from(value: TypedFactor) -> Self {
+        value.fac
+    }
 }
 
 #[derive(Debug, Clone)]
 pub enum Expression {
-    Factor(Factor),
+    Factor(TypedFactor),
+    Cast {
+        target: Type,
+        exp: Box<TypedExpression>,
+    },
     Binary {
-        lhs: Box<Expression>,
+        lhs: Box<TypedExpression>,
         op: BinOp,
-        rhs: Box<Expression>,
+        rhs: Box<TypedExpression>,
     },
     Assignment {
-        lhs: Box<Expression>,
-        rhs: Box<Expression>,
+        lhs: Box<TypedExpression>,
+        rhs: Box<TypedExpression>,
     },
     AssignmentOp {
-        lhs: Box<Expression>,
-        rhs: Box<Expression>,
+        lhs: Box<TypedExpression>,
+        rhs: Box<TypedExpression>,
         op: BinOp,
     },
 
     Conditional {
-        condition: Box<Expression>,
-        true_e: Box<Expression>,
-        false_e: Box<Expression>,
+        condition: Box<TypedExpression>,
+        true_e: Box<TypedExpression>,
+        false_e: Box<TypedExpression>,
     },
 
     FunctionCall {
         ident: String,
-        args: Vec<Expression>,
+        args: Vec<TypedExpression>,
     },
 }
 
 #[derive(Debug, Clone)]
 pub enum Factor {
-    Constant(i32),
-    Unary { op: UnaryOp, fac: Box<Factor> },
-    Expression(Box<Expression>),
+    Constant(Const),
+    Unary { op: UnaryOp, fac: Box<TypedFactor> },
+    Expression(Box<TypedExpression>),
     Var { ident: String },
 }
 
@@ -148,7 +223,7 @@ pub enum BinOp {
 
     BitwiseAnd,
     BitwiseOr,
-    BitwiseXor
+    BitwiseXor,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -181,12 +256,21 @@ fn token_is(a: &Token, b: &Token) -> bool {
     std::mem::discriminant(a) == std::mem::discriminant(b)
 }
 
+impl Token {
+    fn is_type(&self) -> bool {
+        match self {
+            Self::Int | Self::Long => true,
+            _ => false,
+        }
+    }
+}
+
 impl Parsable for ForInit {
     fn parse(tokens: &mut Vec<Token>) -> Self {
-        if token_is(&peek(tokens), &Token::Int) {
+        if peek(tokens).is_type() {
             ForInit::InitDecl(Declaration::parse(tokens))
         } else {
-            let exp = ForInit::InitExp(Expression::parse_optional(tokens));
+            let exp = ForInit::InitExp(TypedExpression::parse_optional(tokens));
 
             if token_is(&peek(tokens), &Token::Semicolon) {
                 expect(tokens, Token::Semicolon);
@@ -276,9 +360,7 @@ impl BinOp {
 
             Token::QuestionMark => 3,
 
-            Token::BitwiseXor |
-            Token::BitwiseOr |
-            Token::BitwiseAnd => 2,
+            Token::BitwiseXor | Token::BitwiseOr | Token::BitwiseAnd => 2,
 
             Token::Assignment => 1,
             Token::AssignmentAddition
@@ -326,7 +408,7 @@ impl BinOp {
 impl Parsable for Expression {
     fn parse(tokens: &mut Vec<Token>) -> Self {
         fn parse_precedance(tokens: &mut Vec<Token>, min_prec: i32) -> Expression {
-            let mut lhs = Expression::Factor(Factor::parse(tokens));
+            let mut lhs = Expression::Factor(TypedFactor::parse(tokens));
             let mut next_token = peek(tokens);
 
             while BinOp::is_bin_op(&next_token)
@@ -337,37 +419,37 @@ impl Parsable for Expression {
 
                     let right: Expression = Expression::parse(tokens);
                     let left: Expression = Expression::Assignment {
-                        lhs: Box::new(lhs.clone()),
-                        rhs: Box::new(right),
+                        lhs: Box::new(lhs.clone().into()),
+                        rhs: Box::new(right.into()),
                     };
                     lhs = left;
                 } else if token_is(&next_token, &Token::QuestionMark) {
-                    fn parse_conditional_middle(tokens: &mut Vec<Token>) -> Expression {
+                    fn parse_conditional_middle(tokens: &mut Vec<Token>) -> TypedExpression {
                         expect(tokens, Token::QuestionMark);
                         let expression = Expression::parse(tokens);
                         expect(tokens, Token::Colon);
 
-                        return expression;
+                        return expression.into();
                     }
 
                     let middle = parse_conditional_middle(tokens);
                     let right = parse_precedance(tokens, BinOp::token_precedance(next_token));
                     lhs = Expression::Conditional {
-                        condition: Box::new(lhs),
+                        condition: Box::new(lhs.into()),
                         true_e: Box::new(middle),
-                        false_e: Box::new(right),
+                        false_e: Box::new(right.into()),
                     }
                 } else if next_token.is_compound_assignment().is_some() {
                     // expect(tokens, Token::AssignmentAddition);
                     let op = tokens.pop().unwrap().is_compound_assignment().unwrap();
 
-                    let right: Expression = Expression::parse(tokens);
-                    let left: Expression = Expression::AssignmentOp {
-                        lhs: Box::new(lhs.clone()),
+                    let right: TypedExpression = Expression::parse(tokens).into();
+                    let left = Expression::AssignmentOp {
+                        lhs: Box::new(lhs.clone().into()),
                         rhs: Box::new(right),
                         op,
                     };
-                    lhs = left
+                    lhs = left.into()
                 }
 
                 if !BinOp::is_bin_op(&peek(tokens)) {
@@ -377,9 +459,9 @@ impl Parsable for Expression {
                 let operator = BinOp::parse(tokens);
                 let rhs = parse_precedance(tokens, operator.precedance() + 1);
                 lhs = Expression::Binary {
-                    lhs: Box::new(lhs),
+                    lhs: Box::new(lhs.into()),
                     op: operator,
-                    rhs: Box::new(rhs),
+                    rhs: Box::new(rhs.into()),
                 };
 
                 next_token = peek(tokens);
@@ -392,46 +474,71 @@ impl Parsable for Expression {
     }
 }
 
-impl Expression {
-    fn parse_optional(tokens: &mut Vec<Token>) -> Option<Expression> {
+impl TypedExpression {
+    fn parse_optional(tokens: &mut Vec<Token>) -> Option<TypedExpression> {
         if token_is(&peek(tokens), &Token::Semicolon) || token_is(&peek(tokens), &Token::CloseParen)
         {
             None
         } else {
-            Some(Expression::parse(tokens))
+            Some(Expression::parse(tokens).into())
         }
     }
 }
 
-impl Parsable for Factor {
+fn parse_constant(token: Token) -> Const {
+    let x = match token {
+        Token::Constant(x) => x.into(),
+        Token::LongConstant(x) => x,
+        _ => unreachable!(),
+    };
+
+    // if x > (2_i64.pow(63)) - 1 {
+    //     panic!("Constant is too large to be an int or a long");
+    // }
+
+    if token_is(&token, &Token::Constant(0)) && x <= 2_i64.pow(32) - 1 {
+        return Const::ConstInt(x.try_into().unwrap());
+    }
+
+    return Const::ConstLong(x);
+}
+
+impl Parsable for TypedFactor {
     fn parse(tokens: &mut Vec<Token>) -> Self {
         let next_token = peek(tokens);
 
         println!("{:?}", next_token);
-        if token_is(&next_token, &Token::Constant(0)) {
-            let token = expect(tokens, Token::Constant(0));
-            let value = match token {
-                Token::Constant(x) => x,
-                _ => unreachable!(),
-            };
+        if token_in(
+            &next_token,
+            &vec![Token::Constant(0), Token::LongConstant(0)],
+        ) {
+            let token = take(tokens);
+            let constant = parse_constant(token.clone());
 
-            Factor::Constant(value)
+            TypedFactor {
+                type_t: match token {
+                    Token::Constant(_) => Type::Int,
+                    Token::LongConstant(_) => Type::Long,
+                    _ => unreachable!()
+                },
+                fac: Factor::Constant(constant),
+            }
         } else if token_is(&next_token, &Token::BitwiseComplment)
             || token_is(&next_token, &Token::Negation)
         {
             let operator = UnaryOp::parse(tokens);
-            let inner_factor = Factor::parse(tokens);
+            let inner_factor = TypedFactor::parse(tokens);
 
             Factor::Unary {
                 op: operator,
                 fac: Box::new(inner_factor),
-            }
+            }.into()
         } else if token_is(&next_token, &Token::OpenParen) {
             expect(tokens, Token::OpenParen);
             let inner = Expression::parse(tokens);
             expect(tokens, Token::CloseParen);
 
-            Factor::Expression(Box::new(inner))
+            Factor::Expression(Box::new(inner.into())).into()
         } else if token_is(&next_token, &Token::Identifier("".to_owned())) {
             let identifier = expect(tokens, Token::Identifier("".to_owned()));
             let identifier = match identifier {
@@ -443,7 +550,7 @@ impl Parsable for Factor {
                 Token::OpenParen => {
                     expect(tokens, Token::OpenParen);
 
-                    let mut params = vec![];
+                    let mut params: Vec<TypedExpression> = vec![];
                     while !(token_is(&peek(tokens), &Token::CloseParen)) {
                         let exp = Expression::parse(tokens);
 
@@ -451,16 +558,16 @@ impl Parsable for Factor {
                             expect(tokens, Token::Comma);
                         }
 
-                        params.push(exp);
+                        params.push(exp.into());
                     }
                     expect(tokens, Token::CloseParen);
 
-                    Factor::Expression(Box::new(Expression::FunctionCall {
+                    Factor::Expression(Box::new(TypedExpression::from(Expression::FunctionCall {
                         ident: identifier,
                         args: params,
-                    }))
+                    }))).into()
                 }
-                _ => Factor::Var { ident: identifier },
+                _ => Factor::Var { ident: identifier }.into(),
             }
         } else if token_is(&next_token, &Token::Assignment) {
             panic!("uhhh")
@@ -475,7 +582,7 @@ impl Parsable for Statement {
         let next_token = peek(tokens);
 
         if token_is(&next_token, &Token::Identifier("".into())) {
-            let statement = Statement::Expression(Expression::parse(tokens));
+            let statement = Statement::Expression(Expression::parse(tokens).into());
 
             expect(tokens, Token::Semicolon);
 
@@ -514,7 +621,7 @@ impl Parsable for Statement {
                 None
             };
 
-            return Statement::If { cond, then, else_s };
+            return Statement::If { cond: cond.into(), then, else_s };
         } else if token_is(&next_token, &Token::OpenBrace) {
             expect(tokens, Token::OpenBrace);
 
@@ -533,7 +640,7 @@ impl Parsable for Statement {
             let body = Statement::parse(tokens);
 
             return Statement::While {
-                cond: exp,
+                cond: exp.into(),
                 body: Box::new(body),
                 label: get_new_identfier(),
             };
@@ -547,7 +654,7 @@ impl Parsable for Statement {
             let cond = Expression::parse(tokens);
             let do_while = Statement::DoWhile {
                 body: Box::new(body),
-                condition: cond,
+                condition: cond.into(),
                 label: get_new_identfier(),
             };
 
@@ -562,10 +669,10 @@ impl Parsable for Statement {
 
             // expect(tokens, Token::Semicolon);
 
-            let cond = Expression::parse_optional(tokens);
+            let cond = TypedExpression::parse_optional(tokens);
             expect(tokens, Token::Semicolon);
 
-            let post = Expression::parse_optional(tokens);
+            let post = TypedExpression::parse_optional(tokens);
             // expect(tokens, Token::Semicolon);
 
             println!("\n{:?}\n {:?}\n", cond, post);
@@ -598,11 +705,11 @@ impl Parsable for Statement {
         let expression = Expression::parse(tokens);
         expect(tokens, Token::Semicolon);
 
-        Statement::Return(expression)
+        Statement::Return(expression.into())
     }
 }
 
-fn token_in(token: Token, options: &Vec<Token>) -> bool {
+fn token_in(token: &Token, options: &Vec<Token>) -> bool {
     for option in options {
         if token_is(&token, &option) {
             return true;
@@ -618,7 +725,7 @@ pub fn expect_multiple(tokens: &mut Vec<Token>, options: Vec<Token>) -> Token {
     }
     let token = token.unwrap();
 
-    if token_in(token.clone(), &options) {
+    if token_in(&token, &options) {
         return token;
     } else {
         panic!("Expected one of {:?}, but found {:?}.", options, token);
@@ -636,15 +743,15 @@ fn take(tokens: &mut Vec<Token>) -> Token {
 
 impl Parsable for Declaration {
     fn parse(tokens: &mut Vec<Token>) -> Self {
-        let specifiers = vec![Token::Int, Token::Extern, Token::Static];
+        let specifiers = vec![Token::Int, Token::Long, Token::Extern, Token::Static];
 
         let mut spec_list = vec![];
 
-        while token_in(peek(tokens), &specifiers) {
+        while token_in(&peek(tokens), &specifiers) {
             spec_list.push(take(tokens));
         }
 
-        let (_type_t, storage_class) = parse_type_and_storage_class(spec_list).unwrap();
+        let (type_t, storage_class) = parse_type_and_storage_class(spec_list).unwrap();
 
         let identifier = expect(tokens, Token::Identifier("".to_owned()));
         let identifier = match identifier {
@@ -657,6 +764,7 @@ impl Parsable for Declaration {
                 tokens,
                 identifier,
                 storage_class,
+                type_t,
             ));
         }
 
@@ -664,7 +772,7 @@ impl Parsable for Declaration {
             expect(tokens, Token::Assignment);
             let exp = Expression::parse(tokens);
 
-            Option::Some(Box::new(exp))
+            Option::Some(Box::new(exp.into()))
         } else {
             Option::None
         };
@@ -675,6 +783,7 @@ impl Parsable for Declaration {
             identifier,
             init,
             storage_class,
+            var_type: type_t,
         })
     }
 }
@@ -682,7 +791,7 @@ impl Parsable for Declaration {
 impl Parsable for BlockItem {
     fn parse(tokens: &mut Vec<Token>) -> Self {
         match peek(tokens) {
-            Token::Int => Self::Declaration(Declaration::parse(tokens)),
+            Token::Int | Token::Long => Self::Declaration(Declaration::parse(tokens)),
             // Token::Identifier(ident) => {
             //     Self::Statement(())
             // },
@@ -691,29 +800,43 @@ impl Parsable for BlockItem {
     }
 }
 
+fn parse_type(type_list: Vec<Token>) -> Type {
+    if type_list == vec![Token::Int] {
+        return Type::Int;
+    } else if (type_list == vec![Token::Int, Token::Long])
+        || (type_list == vec![Token::Long, Token::Int])
+        || (type_list == vec![Token::Long])
+    {
+        return Type::Long;
+    } else {
+        panic!("Invalid type specifier {:?}", type_list)
+    }
+}
+
 fn parse_type_and_storage_class(
     specifier_list: Vec<Token>,
-) -> Result<(Token, Option<StorageClass>), Box<dyn Error>> {
+) -> Result<(Type, Option<StorageClass>), Box<dyn Error>> {
     let mut types = vec![];
     let mut storage_classes = vec![];
-
+        
     for specifier in specifier_list {
-        if token_is(&specifier, &Token::Int) {
+        if token_in(&specifier, &vec![Token::Int, Token::Long]) {
             types.push(specifier)
         } else {
             storage_classes.push(specifier)
         }
     }
+    
+    // if types.len() == 0 {
+    //     return Err("Invalid type specifier".into());
+    // }
 
-    if types.len() != 1 {
-        return Err("Invalid type specifier".into());
-    }
+    let type_t = parse_type(types);
 
     if storage_classes.len() > 1 {
         return Err("Invalid storage class".into());
     }
 
-    let type_t = Token::Int;
     let mut storage_class = None;
 
     if storage_classes.len() == 1 {
@@ -731,21 +854,36 @@ fn parse_storage_class(token: Token) -> Result<StorageClass, Box<dyn Error>> {
     }
 }
 
+fn take_while(tokens: &mut Vec<Token>, condition: Vec<Token>) -> Vec<Token> {
+    let mut result = vec![];
+
+    while token_in(&peek(tokens), &condition) {
+        result.push(take(tokens))
+    }
+
+    return result;
+}
+
 impl FunctionDeclaration {
     fn parse_with_name(
         tokens: &mut Vec<Token>,
         identifier: String,
         storage_class: Option<StorageClass>,
+        type_t: Type,
     ) -> Self {
         expect(tokens, Token::OpenParen);
         let mut params = vec![];
+        let mut params_types = vec![];
 
         while !(token_is(&peek(tokens), &Token::CloseParen)) {
             if let Token::Void = peek(tokens) {
                 expect(tokens, Token::Void);
                 break;
             };
-            expect(tokens, Token::Int);
+
+            let types = take_while(tokens, vec![Token::Int, Token::Long]);
+
+            params_types.push(parse_type(types));
 
             let identifier = expect(tokens, Token::Identifier("".to_owned()));
             let identifier = match identifier {
@@ -769,6 +907,10 @@ impl FunctionDeclaration {
                 body: None,
                 params,
                 storage_class,
+                fun_type: Type::FunType {
+                    params: params_types,
+                    return_value: Box::new(type_t),
+                },
             };
         };
 
@@ -788,6 +930,10 @@ impl FunctionDeclaration {
             body: Some(body),
             params,
             storage_class,
+            fun_type: Type::FunType {
+                params: params_types,
+                return_value: Box::new(type_t),
+            },
         };
     }
 }
@@ -812,8 +958,14 @@ impl Parsable for Program {
 
         while (!tokens.is_empty())
             && token_in(
-                peek(tokens),
-                &vec![Token::Int, Token::Void, Token::Extern, Token::Static],
+                &peek(tokens),
+                &vec![
+                    Token::Int,
+                    Token::Long,
+                    Token::Void,
+                    Token::Extern,
+                    Token::Static,
+                ],
             )
         {
             let decl = Declaration::parse(tokens);

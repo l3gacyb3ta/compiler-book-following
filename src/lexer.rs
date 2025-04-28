@@ -1,5 +1,5 @@
-use regex::Regex;
 use crate::parser::BinOp;
+use regex::Regex;
 
 macro_rules! re {
     ($s:expr) => {
@@ -7,10 +7,11 @@ macro_rules! re {
     };
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Token {
     Identifier(String),
     Constant(i32),
+    LongConstant(i64),
 
     OpenParen,
     CloseParen,
@@ -49,6 +50,7 @@ pub enum Token {
     Percent,
 
     Int,
+    Long,
     Void,
     Return,
     Static,
@@ -67,7 +69,7 @@ pub enum Token {
 
     BitwiseAnd,
     BitwiseOr,
-    BitwiseXor
+    BitwiseXor,
 }
 
 impl Token {
@@ -81,8 +83,8 @@ impl Token {
             Self::AssignmentAnd => Some(BinOp::BitwiseAnd),
             Self::AssignmentXor => Some(BinOp::BitwiseXor),
             Self::AssignmentOr => Some(BinOp::BitwiseOr),
-            
-            _ => None
+
+            _ => None,
         }
     }
 }
@@ -98,6 +100,8 @@ impl Token {
 pub fn tokenize(string: &str) -> Vec<Token> {
     let ident = re!(r"^[a-zA-Z_]\w*\b");
     let constant = re!(r"^[0-9]+\b");
+    let hex_constant = re!(r"^0x[0-9a-fA-F]+\b");
+    let long_constant = re!(r"^[0-9]+[lL]\b");
     let int = re!(r"^int\b");
     let void = re!(r"^void\b");
     let ret = re!(r"^ret\b");
@@ -177,14 +181,11 @@ pub fn tokenize(string: &str) -> Vec<Token> {
         (assand, "assand"),
         (assxor, "assxor"),
         (assor, "assor"),
-
         (if_t, "if"),
         (else_t, "else"),
         (question, "question"),
         (colon, "colon"),
-
         (comma, "comma"),
-
         (exlm, "exlm"),
         (and, "and"),
         (or, "or"),
@@ -195,14 +196,14 @@ pub fn tokenize(string: &str) -> Vec<Token> {
         (lteq, "lteq"),
         (gteq, "gteq"),
         (constant, "constant"),
+        (hex_constant, "hex_constant"),
+        (long_constant, "long_constant"),
         (ident, "ident"),
-
         (do_t, "do"),
         (while_t, "while"),
         (for_t, "for"),
         (break_t, "break"),
         (continue_t, "continue"),
-        
         (bitwise_and, "bitwise_and"),
         (bitwise_or, "bitwise_or"),
         (bitwise_xor, "bitwise_xor"),
@@ -301,14 +302,32 @@ pub fn tokenize(string: &str) -> Vec<Token> {
                     "continue" => Token::Continue,
                     "static" => Token::Static,
                     "extern" => Token::Extern,
+                    "long" => Token::Long,
                     value => Token::Identifier(value.into()),
                 }
             }
+
             "constant" => {
                 let constant = value
                     .to_string()
                     .parse::<i32>()
                     .expect("unable to convert string to number");
+                Token::Constant(constant)
+            }
+
+            "long_constant" => {
+                let long_constant = value
+                    .trim_end_matches("L")
+                    .trim_end_matches("l")
+                    .parse::<i64>()
+                    .expect("unable to convert string to long number");
+                Token::LongConstant(long_constant)
+            }
+
+            "hex_constant" => {
+                let constant = i32::from_str_radix(value.trim_start_matches("0x"), 16)
+                    .expect("unable to convert string to number");
+
                 Token::Constant(constant)
             }
 

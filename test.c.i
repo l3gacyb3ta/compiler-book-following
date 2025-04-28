@@ -1,5 +1,4 @@
 int main() {
-    int a = 20;
-    a ^= 25;
-    return a;
+    long int a = 20L;
+    return a + 3;
 }
